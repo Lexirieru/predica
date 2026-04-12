@@ -1,0 +1,139 @@
+@import "tailwindcss";
+
+@theme inline {
+  --color-background: #0a0a0a;
+  --color-foreground: #ededed;
+  --font-sans: var(--font-geist-sans);
+  --font-mono: var(--font-geist-mono);
+}
+
+:root {
+  /* Emil: Custom easing curves — built-in CSS easings are too weak */
+  --ease-out: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+
+  /* Color tokens — semantic, not hardcoded */
+  --color-yes: #00D1A9;
+  --color-no: #FF4976;
+  --color-yes-glow: rgba(0, 209, 169, 0.4);
+  --color-no-glow: rgba(255, 73, 118, 0.4);
+  --color-surface: rgba(255, 255, 255, 0.03);
+  --color-surface-hover: rgba(255, 255, 255, 0.06);
+  --color-border: rgba(255, 255, 255, 0.06);
+  --color-border-hover: rgba(255, 255, 255, 0.12);
+  --color-text-primary: #ffffff;
+  --color-text-secondary: rgba(255, 255, 255, 0.6);
+  --color-text-tertiary: rgba(255, 255, 255, 0.4);
+  --color-text-muted: #555;
+}
+
+* {
+  -webkit-tap-highlight-color: transparent;
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  overscroll-behavior: none;
+  background: #0a0a0a;
+  color: #ededed;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Hide scrollbars everywhere */
+::-webkit-scrollbar {
+  display: none;
+}
+
+* {
+  scrollbar-width: none;
+}
+
+/* Number input spinners */
+input[type="number"]::-webkit-inner-spin-button,
+input[type="number"]::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+input[type="number"] {
+  -moz-appearance: textfield;
+}
+
+/* Emil: prefers-reduced-motion — fewer animations, not zero */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.15s !important;
+  }
+}
+
+/* Emil: Touch device hover guard — prevent false hover on tap */
+@media (hover: hover) and (pointer: fine) {
+  .hover-lift:hover {
+    transform: translateY(-2px);
+    transition: transform 200ms var(--ease-out);
+  }
+}
+
+/* Stagger animation utility */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 0.6; }
+  50% { opacity: 1; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.stagger-1 { animation: fadeInUp 400ms var(--ease-out) 0ms both; }
+.stagger-2 { animation: fadeInUp 400ms var(--ease-out) 50ms both; }
+.stagger-3 { animation: fadeInUp 400ms var(--ease-out) 100ms both; }
+.stagger-4 { animation: fadeInUp 400ms var(--ease-out) 150ms both; }
+.stagger-5 { animation: fadeInUp 400ms var(--ease-out) 200ms both; }
+.stagger-6 { animation: fadeInUp 400ms var(--ease-out) 250ms both; }
+.stagger-7 { animation: fadeInUp 400ms var(--ease-out) 300ms both; }
+
+/* UX Pro Max: Focus visible for accessibility */
+:focus-visible {
+  outline: 2px solid var(--color-yes);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* UX Pro Max: Active press feedback on all interactive elements */
+button,
+a,
+[role="button"] {
+  transition: transform 160ms var(--ease-out);
+}
+
+button:active,
+a:active,
+[role="button"]:active {
+  transform: scale(0.97);
+}

@@ -1,0 +1,10 @@
+node_modules/
+.DS_Store
+*.db
+.env
+.env.local
+.env*.local
+dist/
+.next/
+.claude/
+.agents/

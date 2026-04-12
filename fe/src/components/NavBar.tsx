@@ -1,0 +1,112 @@
+"use client";
+
+import { usePathname } from "next/navigation";
+import Link from "next/link";
+
+const tabs = [
+  {
+    label: "Feed",
+    href: "/",
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M3 9l9-7 9 7v11a2 2 0 01-2 2H5a2 2 0 01-2-2V9z"
+          stroke={active ? "#fff" : "#555"}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          fill={active ? "rgba(255,255,255,0.08)" : "none"}
+        />
+      </svg>
+    ),
+  },
+  {
+    label: "Explore",
+    href: "/explore",
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <circle cx="11" cy="11" r="7" stroke={active ? "#fff" : "#555"} strokeWidth="1.8" />
+        <path d="M21 21l-4.35-4.35" stroke={active ? "#fff" : "#555"} strokeWidth="1.8" strokeLinecap="round" />
+      </svg>
+    ),
+  },
+  {
+    label: "Board",
+    href: "/leaderboard",
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <path
+          d="M8 21V11M16 21V7M12 21V3"
+          stroke={active ? "#fff" : "#555"}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+  {
+    label: "Profile",
+    href: "/profile",
+    icon: (active: boolean) => (
+      <svg width="22" height="22" viewBox="0 0 24 24" fill="none">
+        <circle cx="12" cy="8" r="4" stroke={active ? "#fff" : "#555"} strokeWidth="1.8" />
+        <path
+          d="M20 21c0-3.314-3.582-6-8-6s-8 2.686-8 6"
+          stroke={active ? "#fff" : "#555"}
+          strokeWidth="1.8"
+          strokeLinecap="round"
+        />
+      </svg>
+    ),
+  },
+];
+
+export default function NavBar() {
+  const pathname = usePathname();
+
+  return (
+    <nav
+      className="fixed bottom-0 left-0 right-0 z-50 bg-black/70 backdrop-blur-2xl border-t border-white/[0.06]"
+      role="navigation"
+      aria-label="Main navigation"
+    >
+      <div className="max-w-[430px] mx-auto flex items-center justify-around py-1 pb-[calc(0.25rem+env(safe-area-inset-bottom))]">
+        {tabs.map((tab) => {
+          const active = pathname === tab.href;
+          return (
+            <Link
+              key={tab.href}
+              href={tab.href}
+              aria-label={tab.label}
+              aria-current={active ? "page" : undefined}
+              className="relative flex flex-col items-center gap-0.5 min-w-[48px] min-h-[44px] justify-center px-3"
+            >
+              {/* UX Pro Max: Active indicator dot */}
+              {active && (
+                <div
+                  className="absolute -top-1 w-4 h-0.5 rounded-full bg-white/80"
+                  style={{
+                    boxShadow: "0 0 8px rgba(255,255,255,0.3)",
+                  }}
+                />
+              )}
+              <div
+                className="transition-transform duration-150"
+                style={{ transitionTimingFunction: "var(--ease-out)" }}
+              >
+                {tab.icon(active)}
+              </div>
+              <span
+                className={`text-[10px] font-medium transition-colors duration-150 ${
+                  active ? "text-white" : "text-[#555]"
+                }`}
+              >
+                {tab.label}
+              </span>
+            </Link>
+          );
+        })}
+      </div>
+    </nav>
+  );
+}
