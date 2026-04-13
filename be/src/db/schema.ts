@@ -1,79 +1,70 @@
-import Database from "better-sqlite3";
-import path from "path";
+import { pgTable, text, real, integer, index } from "drizzle-orm/pg-core";
+import { sql } from "drizzle-orm";
 
-const DB_PATH = process.env.DATABASE_URL || "./predica.db";
-
-let db: Database.Database;
-
-export function getDb(): Database.Database {
-  if (!db) {
-    db = new Database(path.resolve(DB_PATH));
-    db.pragma("journal_mode = WAL");
-    db.pragma("foreign_keys = ON");
-    initTables(db);
+export const markets = pgTable("markets", {
+  id: text("id").primaryKey(),
+  symbol: text("symbol").notNull(),
+  question: text("question").notNull(),
+  targetPrice: real("target_price").notNull(),
+  currentPrice: real("current_price").notNull().default(0),
+  deadline: integer("deadline").notNull(),
+  category: text("category").notNull().default("crypto"),
+  yesPool: real("yes_pool").notNull().default(0),
+  noPool: real("no_pool").notNull().default(0),
+  totalVoters: integer("total_voters").notNull().default(0),
+  sentiment: real("sentiment").notNull().default(50),
+  status: text("status", { enum: ["active", "expired", "settled"] }).notNull().default("active"),
+  resolution: text("resolution", { enum: ["yes", "no"] }),
+  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+  updatedAt: integer("updated_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+}, (table) => {
+  return {
+    statusIdx: index("idx_markets_status").on(table.status),
+    deadlineIdx: index("idx_markets_deadline").on(table.deadline),
   }
-  return db;
-}
+});
 
-function initTables(db: Database.Database) {
-  db.exec(`
-    CREATE TABLE IF NOT EXISTS markets (
-      id TEXT PRIMARY KEY,
-      symbol TEXT NOT NULL,
-      question TEXT NOT NULL,
-      target_price REAL NOT NULL,
-      current_price REAL NOT NULL DEFAULT 0,
-      deadline INTEGER NOT NULL,
-      category TEXT NOT NULL DEFAULT 'crypto',
-      yes_pool REAL NOT NULL DEFAULT 0,
-      no_pool REAL NOT NULL DEFAULT 0,
-      total_voters INTEGER NOT NULL DEFAULT 0,
-      sentiment REAL NOT NULL DEFAULT 50,
-      status TEXT NOT NULL DEFAULT 'active',
-      resolution TEXT,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000),
-      updated_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    );
+export const votes = pgTable("votes", {
+  id: text("id").primaryKey(),
+  marketId: text("market_id").notNull().references(() => markets.id),
+  userWallet: text("user_wallet").notNull(),
+  side: text("side", { enum: ["yes", "no"] }).notNull(),
+  amount: real("amount").notNull(),
+  payout: real("payout").notNull().default(0),
+  orderId: text("order_id"),
+  status: text("status", { enum: ["pending", "won", "lost"] }).notNull().default("pending"),
+  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+}, (table) => {
+  return {
+    marketIdx: index("idx_votes_market").on(table.marketId),
+    userWalletIdx: index("idx_votes_user_wallet").on(table.userWallet),
+  }
+});
 
-    CREATE TABLE IF NOT EXISTS votes (
-      id TEXT PRIMARY KEY,
-      market_id TEXT NOT NULL REFERENCES markets(id),
-      user_wallet TEXT NOT NULL,
-      side TEXT NOT NULL CHECK(side IN ('yes', 'no')),
-      amount REAL NOT NULL,
-      payout REAL NOT NULL DEFAULT 0,
-      order_id TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    );
+export const users = pgTable("users", {
+  wallet: text("wallet").primaryKey(),
+  balance: real("balance").notNull().default(0),
+  totalDeposits: real("total_deposits").notNull().default(0),
+  totalWithdrawals: real("total_withdrawals").notNull().default(0),
+  totalVotes: integer("total_votes").notNull().default(0),
+  wins: integer("wins").notNull().default(0),
+  losses: integer("losses").notNull().default(0),
+  totalWagered: real("total_wagered").notNull().default(0),
+  totalPnl: real("total_pnl").notNull().default(0),
+  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+});
 
-    CREATE TABLE IF NOT EXISTS users (
-      wallet TEXT PRIMARY KEY,
-      balance REAL NOT NULL DEFAULT 0,
-      total_deposits REAL NOT NULL DEFAULT 0,
-      total_withdrawals REAL NOT NULL DEFAULT 0,
-      total_votes INTEGER NOT NULL DEFAULT 0,
-      wins INTEGER NOT NULL DEFAULT 0,
-      losses INTEGER NOT NULL DEFAULT 0,
-      total_wagered REAL NOT NULL DEFAULT 0,
-      total_pnl REAL NOT NULL DEFAULT 0,
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    );
-
-    CREATE TABLE IF NOT EXISTS transactions (
-      id TEXT PRIMARY KEY,
-      wallet TEXT NOT NULL,
-      type TEXT NOT NULL CHECK(type IN ('deposit', 'withdraw')),
-      amount REAL NOT NULL,
-      tx_signature TEXT,
-      status TEXT NOT NULL DEFAULT 'pending',
-      created_at INTEGER NOT NULL DEFAULT (unixepoch() * 1000)
-    );
-
-    CREATE INDEX IF NOT EXISTS idx_votes_market ON votes(market_id);
-    CREATE INDEX IF NOT EXISTS idx_votes_user ON votes(user_wallet);
-    CREATE INDEX IF NOT EXISTS idx_markets_status ON markets(status);
-    CREATE INDEX IF NOT EXISTS idx_markets_deadline ON markets(deadline);
-    CREATE INDEX IF NOT EXISTS idx_tx_wallet ON transactions(wallet);
-  `);
-}
+export const transactions = pgTable("transactions", {
+  id: text("id").primaryKey(),
+  wallet: text("wallet").notNull(),
+  type: text("type", { enum: ["deposit", "withdraw", "payout"] }).notNull(),
+  amount: real("amount").notNull(),
+  txSignature: text("tx_signature"),
+  metadata: text("metadata"),
+  status: text("status", { enum: ["pending", "confirmed", "failed"] }).notNull().default("pending"),
+  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+}, (table) => {
+  return {
+    walletIdx: index("idx_tx_wallet").on(table.wallet),
+  }
+});
