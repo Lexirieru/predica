@@ -49,20 +49,36 @@ async function computeEngagementProxy(symbol: string): Promise<SentimentResult> 
     const sample = data.slice(0, 20);
 
     let weightedScore = 0;
+    let totalEngagement = 0;
     for (const m of sample) {
       const engagement = (m.likeCount || 0) + (m.repostCount || 0) * 2;
+      totalEngagement += engagement;
       weightedScore += Math.min(1, engagement / ENGAGEMENT_SATURATION);
     }
 
-    const bullishPercent = sample.length > 0
-      ? Math.round((weightedScore / sample.length) * 100)
-      : 50;
+    // Three regimes:
+    //   1. No mentions at all → 50% neutral, "neutral" source.
+    //   2. Mentions exist but zero total engagement → 50% neutral, "engagement"
+    //      source (we have Elfa data, but no signal yet; don't stamp as bearish).
+    //   3. Mentions with engagement → weighted score.
+    let bullishPercent: number;
+    let source: SentimentSource;
+    if (sample.length === 0) {
+      bullishPercent = 50;
+      source = "neutral";
+    } else if (totalEngagement === 0) {
+      bullishPercent = 50;
+      source = "engagement";
+    } else {
+      bullishPercent = Math.round((weightedScore / sample.length) * 100);
+      source = "engagement";
+    }
 
     return {
       symbol,
       bullishPercent,
       mentionCount: data.length,
-      source: sample.length > 0 ? "engagement" : "neutral",
+      source,
       confidence: "low",
       topMentions: data.slice(0, 5).map((m) => ({
         link: m.link as unknown as string,
