@@ -45,11 +45,12 @@ export async function getTrendingNarratives() {
 }
 
 export async function chatAnalysis(
-  query: string,
+  message: string,
   mode: "tokenAnalysis" | "macro" | "summary" | "chat" | "tokenIntro" | "accountAnalysis" = "tokenAnalysis",
   ticker?: string
 ) {
-  const body: Record<string, string> = { query, mode };
+  // Elfa API expects `message` (not `query`). The earlier name caused 400s.
+  const body: Record<string, string> = { message, mode };
   if (ticker) body.ticker = ticker;
 
   const res = await fetch(`${BASE_URL}/v2/chat`, {

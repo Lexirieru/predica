@@ -248,6 +248,30 @@ function shuffle<T>(arr: T[]): T[] {
 
 const MARKET_DURATION_MIN = 5;
 
+/**
+ * Seed sentiment for a newly generated market. Two-factor proxy:
+ *   • price momentum from Pacifica yesterday_price (70% weight)
+ *   • mention growth from Elfa (30% weight, trending tokens only)
+ *
+ * Result mapped to 0..100, centered at 50 (neutral). Replaces the old
+ * binary 25/75 split which gave a token with change=+1% the same sentiment
+ * as one with change=+5000%.
+ */
+function seedSentiment(priceInfo: any, mentionChangePercent = 0): number {
+  const current = parseFloat(priceInfo?.mark || "0");
+  const yesterday = parseFloat(priceInfo?.yesterday_price || "0");
+  const priceChange = yesterday > 0 ? (current - yesterday) / yesterday : 0;
+
+  const mentionGrowth = mentionChangePercent / 100;
+
+  // Squash extreme values: ±50% price change / ±500% mention growth → full saturation
+  const priceSignal = Math.max(-1, Math.min(1, priceChange / 0.5));
+  const mentionSignal = Math.max(-1, Math.min(1, mentionGrowth / 5));
+
+  const combined = priceSignal * 0.7 + mentionSignal * 0.3;
+  return Math.max(0, Math.min(100, Math.round(50 + combined * 50)));
+}
+
 async function createMarketForSymbol(
   symbol: string,
   prices: Record<string, any>,
@@ -310,7 +334,8 @@ async function generateMarketsFromTrending() {
     );
     for (const symbol of curatedPool) {
       if (created >= CURATED_PER_BATCH) break;
-      const ok = await createMarketForSymbol(symbol, prices, 50);
+      const sentiment = seedSentiment(prices[symbol]);
+      const ok = await createMarketForSymbol(symbol, prices, sentiment);
       if (ok) {
         pickedSymbols.add(symbol);
         created++;
@@ -327,7 +352,7 @@ async function generateMarketsFromTrending() {
       const symbol = token.token.toUpperCase();
       if (!pacificaSymbols.has(symbol) || pickedSymbols.has(symbol)) continue;
 
-      const sentiment = Math.round(token.change_percent > 0 ? 75 : 25);
+      const sentiment = seedSentiment(prices[symbol], token.change_percent);
       const ok = await createMarketForSymbol(symbol, prices, sentiment);
       if (ok) {
         pickedSymbols.add(symbol);
