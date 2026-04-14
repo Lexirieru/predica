@@ -211,6 +211,42 @@ export const voteRepo = {
     });
   },
 
+  /**
+   * Return an ascending-time series of running vote ratio (yes share) for a
+   * market. Used to render a "hype meter" sparkline showing how sentiment
+   * shifted during the market's lifetime.
+   */
+  async getHypeTimeline(marketId: string) {
+    const rows = await db
+      .select({
+        id: votes.id,
+        side: votes.side,
+        amount: votes.amount,
+        createdAt: votes.createdAt,
+      })
+      .from(votes)
+      .where(eq(votes.marketId, marketId))
+      .orderBy(asc(votes.createdAt));
+
+    type Point = { t: number; yes: number; no: number; totalVotes: number };
+    // Running totals reduced into a timeline, immutable-style so react-hooks/
+    // immutability rule is satisfied wherever we borrow this shape.
+    const timeline = rows.reduce<Point[]>((acc, v) => {
+      const prev = acc.length > 0 ? acc[acc.length - 1] : { t: 0, yes: 0, no: 0, totalVotes: 0 };
+      const yes = prev.yes + (v.side === "yes" ? v.amount : 0);
+      const no = prev.no + (v.side === "no" ? v.amount : 0);
+      acc.push({
+        t: Number(v.createdAt),
+        yes,
+        no,
+        totalVotes: prev.totalVotes + 1,
+      });
+      return acc;
+    }, []);
+
+    return timeline;
+  },
+
   async getByUser(wallet: string) {
     // Join markets to save FE an extra /api/markets/all lookup just to resolve
     // market_id → symbol/question for the vote history.

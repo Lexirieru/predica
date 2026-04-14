@@ -72,6 +72,56 @@ router.get("/symbol/:symbol", async (req: Request, res: Response) => {
   }
 });
 
+// GET /api/markets/:id/hype — vote-ratio timeline (running yes/no pool over time).
+// Powers the "hype meter" sparkline. Response structure is normalized so FE
+// can pipe straight into a chart library.
+router.get("/:id/hype", async (req: Request, res: Response) => {
+  try {
+    const market = await marketRepo.getById(req.params.id);
+    if (!market) {
+      res.status(404).json({ error: "Market not found" });
+      return;
+    }
+    const raw = await voteRepo.getHypeTimeline(market.id);
+
+    // Normalize into yes-share fractions and pool snapshots.
+    const timeline = raw.map((p) => {
+      const total = p.yes + p.no;
+      return {
+        t: p.t,
+        yesShare: total > 0 ? p.yes / total : 0.5,
+        noShare:  total > 0 ? p.no  / total : 0.5,
+        yesPool: p.yes,
+        noPool: p.no,
+        totalVotes: p.totalVotes,
+      };
+    });
+
+    const current = {
+      yesShare: (market.yesPool + market.noPool) > 0
+        ? market.yesPool / (market.yesPool + market.noPool)
+        : 0.5,
+      noShare: (market.yesPool + market.noPool) > 0
+        ? market.noPool / (market.yesPool + market.noPool)
+        : 0.5,
+      yesPool: market.yesPool,
+      noPool: market.noPool,
+      totalVoters: market.totalVoters,
+    };
+
+    res.json({
+      marketId: market.id,
+      symbol: market.symbol,
+      status: market.status,
+      current,
+      timeline,
+    });
+  } catch (err) {
+    console.error("[Markets/hype] Error:", err);
+    res.status(500).json({ error: "Failed to fetch hype" });
+  }
+});
+
 // GET /api/markets/:id
 router.get("/:id", async (req: Request, res: Response) => {
   try {
