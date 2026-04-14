@@ -285,5 +285,25 @@ Market generator dulu accept symbol kalau ada di Pacifica — hasilnya NVDA/TSLA
 
 ---
 
+### Commit `6835da9` — 2026-04-15
+**Title:** fix: engagement proxy defaults to 50% when all mentions have zero likes
+
+**Files:**
+- `be/src/lib/sentimentCache.ts`
+
+#### 12. Zero-engagement neutral default
+Bug: symbol kayak TRUMP punya mentions di Elfa tapi semua `likeCount=0, repostCount=0` → engagement proxy kita output `0% bearish`, padahal itu cuma "no signal", bukan bearish.
+
+**Fix:** tiga regime:
+- No mentions → 50% neutral, source `"neutral"`
+- Mentions ada tapi zero engagement → 50% neutral, source `"engagement"` (data ada, signal belum)
+- Engagement > 0 → weighted score seperti sebelumnya
+
+LLM SWR background tetap jalan — TRUMP ter-upgrade ke 27% bearish + summary setelah ~30s (tested).
+
+**FE impact:** none (response shape sama).
+
+---
+
 <!-- Append new commits above this line. On push, replace the header status with:
      ✅ PUSHED: YYYY-MM-DD at commit {latest hash} — then stop editing this file. -->
