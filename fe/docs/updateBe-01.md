@@ -261,5 +261,29 @@ Vote endpoint udah check `market.status !== "active"` → reject. Jadi user gak 
 
 ---
 
+### Commit `b6f87f1` — 2026-04-15
+**Title:** feat: require Pacifica ∩ Elfa-tracked for market generation
+
+**Files:**
+- `be/src/lib/elfaValidator.ts` (new)
+- `be/src/lib/crons.ts`
+- `be/src/index.ts`
+
+#### 11. Symbol requirement: Pacifica AND Elfa
+Market generator dulu accept symbol kalau ada di Pacifica — hasilnya NVDA/TSLA/GOOGL markets lolos (Pacifica list-nya) padahal Elfa `top-mentions?ticker=NVDA` return 0. Sentiment bar + activity feed permanently empty.
+
+**Fix:** probe `top-mentions.metadata.total > 0` per candidate. Cache per symbol (1h TTL).
+
+**Snapshot saat ini**: dari 24 curated, **14 lolos** (BTC, ETH, SOL, BNB, XRP, AVAX, LINK, AAVE, TON, NEAR, TAO, TRUMP, HYPE, PUMP). Sisanya (DOGE, ADA, SUI, LTC, ARB, UNI, JUP, WLD, BCH, XMR) currently tidak ada ticker mention di Elfa — auto-include lagi kalau Elfa pickup.
+
+**FE impact:** **none**. Pool symbol berkurang dari ~24 jadi ~14 + trending aktif. FE cuma ngeliat lebih sedikit simbol muncul di feed. Sentiment bar sekarang guaranteed punya data nyata.
+
+**Log baru saat boot:**
+```
+[ElfaValidity] Warmed 24 symbols. Tracked: 14 (BTC, ETH, SOL, ...)
+```
+
+---
+
 <!-- Append new commits above this line. On push, replace the header status with:
      ✅ PUSHED: YYYY-MM-DD at commit {latest hash} — then stop editing this file. -->
