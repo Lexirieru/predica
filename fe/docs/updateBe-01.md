@@ -12,10 +12,10 @@
 |--------|---------|--------|
 | Refactor vote history → langsung pakai `marketSymbol` dari response, hapus fetch `/api/markets/all` | `src/app/profile/page.tsx` | [§Vote history enrichment](#4-vote-history-enrichment) |
 | Call `GET /api/portfolio/:wallet/stats` buat PnL summary card di profile (winRate, roi, biggestWin, dll) | `src/app/profile/page.tsx` | [§Portfolio stats endpoint](#5-portfolio-stats-endpoint) |
-| (opsional) Verify sentiment bar udah nunjukin angka > 0 di testnet | `src/components/MarketCard.tsx` | [§Sentiment scoring](#1-sentiment-scoring) |
+| `/api/sentiment/:symbol` response **shape berubah** — handle field baru: `source`, `confidence`, `summary`, `refreshing` | `src/components/MarketCard.tsx` | [§LLM-backed sentiment](#6-llm-backed-sentiment) |
 
-**Config changes:** none.
-**Breaking changes:** none (hanya nambah field + endpoint baru, gak ngilangin yang lama).
+**Config changes:** optional `SENTIMENT_LLM_ENABLED=false` di BE env buat matiin LLM (hemat credit). Default `true`.
+**Breaking changes:** sentiment response shape berubah, FE perlu adjust (detail di §6). Endpoint path sama.
 
 ---
 
@@ -96,6 +96,55 @@ New endpoint: `GET /api/portfolio/:wallet/stats`
 - Gak perlu hitung client-side dari vote array — lebih konsisten + hemat CPU.
 
 **Catatan PnL chart:** response `/api/vote/user/:wallet` (enriched di §4) udah cukup buat build chart client-side. Sort by `createdAt` asc, running sum dari `status === 'won' ? payout - amount : status === 'lost' ? -amount : 0`. Filter today/week/month/all = simple `createdAt > threshold` di FE.
+
+---
+
+### Commit `fc4b1e1` — 2026-04-15
+**Title:** feat: LLM-backed sentiment with stale-while-revalidate + smart seed
+
+**Files:**
+- `be/src/lib/sentimentCache.ts` (new)
+- `be/src/lib/elfa.ts` (fix)
+- `be/src/lib/crons.ts` (seed)
+- `be/src/routes/sentiment.ts`
+- `be/.env.example`
+
+#### 6. LLM-backed sentiment
+`GET /api/sentiment/:symbol` sekarang pake stale-while-revalidate:
+- Cold call → return engagement proxy dalam ~200ms, background Elfa chat LLM refresh
+- Warm call (dalam 5 menit) → instant cache hit dengan LLM sentiment beneran
+- LLM call di-dedupe per symbol (single-flight), cache 5 min TTL
+
+**Response shape baru:**
+```ts
+{
+  symbol: "BTC",
+  bullishPercent: 85,            // 0..100
+  mentionCount: 10,
+  source: "llm" | "engagement" | "neutral",
+  confidence: "high" | "medium" | "low",
+  summary?: string,              // Elfa LLM TL;DR, up to 500 chars
+  topMentions?: [{ link, likes, reposts, views }],
+  lastUpdated: 1776198...,       // epoch ms
+  refreshing: boolean,           // BE lagi fetch LLM di background
+}
+```
+
+**Breaking change buat FE:**
+Response lama: `{ symbol, mentionCount, bullishPercent, topMentions }`
+Response baru: extra fields `source`, `confidence`, `summary`, `lastUpdated`, `refreshing`.
+
+Field lama masih ada — yang perlu update:
+- Tampilin `confidence` sebagai visual cue (e.g. dot warna: hijau=high, kuning=medium, abu=low)
+- `summary` → tooltip "AI analysis" di sentiment bar
+- `refreshing: true` → subtle spinner/pulse animation "updating..."
+- `source === "engagement"` → badge kecil "quick estimate" supaya user tau ini bukan LLM full
+
+**Kenapa ini penting:**
+Logic lama cuma ngukur engagement (popularitas), bukan sentiment. Tweet "BTC crashing" dengan 100 likes dulu dikira bullish. Sekarang Elfa chat mode `tokenAnalysis` beneran analisis semantic: parse "86.6% positive votes" atau bullish/bearish word ratio.
+
+#### 7. Market seed sentiment (fix, no FE action)
+`crons.ts generateMarketsFromTrending` dulu set `sentiment: 25 or 75` berdasarkan binary `change_percent > 0`. Sekarang pakai `seedSentiment()` — blend Pacifica price momentum (70%) + Elfa mention growth (30%), mapped ke 0..100. Market baru lahir udah punya seed yang masuk akal, nanti di-upgrade sama LLM saat pertama kali FE request sentiment endpoint.
 
 ---
 
