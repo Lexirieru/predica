@@ -2,17 +2,9 @@
 
 import { useState, useEffect, useCallback, useRef } from "react";
 import { PredictionMarket, Candle } from "@/lib/types";
-import { fetchMarkets, fetchCandles } from "@/lib/api";
+import { fetchMarkets, fetchCandleSeries } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { useWebSocket } from "./useWebSocket";
-
-function parseCandles(raw: number[]): Candle[] {
-  // fetchCandles returns close prices only — convert to basic candles for fallback
-  return raw.map((c, i) => ({
-    time: Math.floor(Date.now() / 1000) - (raw.length - i) * 60,
-    open: c, high: c, low: c, close: c,
-  }));
-}
 
 export function useMarkets() {
   const [markets, setMarketsLocal] = useState<PredictionMarket[]>([]);
@@ -34,11 +26,13 @@ export function useMarkets() {
 
       const withCandles = await Promise.all(
         data.map(async (m) => {
-          const closes = await fetchCandles(m.symbol);
-          const candles: Candle[] = closes.length >= 2
-            ? parseCandles(closes.slice(-60))
+          // Prefer full OHLC from BE persistent cache (candle_snapshots → cache → REST).
+          const ohlc = await fetchCandleSeries(m.symbol, "1h");
+          const candles: Candle[] = ohlc.length >= 2
+            ? ohlc.slice(-60)
             : [{ time: Math.floor(Date.now() / 1000), open: m.currentPrice, high: m.currentPrice, low: m.currentPrice, close: m.currentPrice }];
-          return { ...m, candles, priceHistory: closes.slice(-30) };
+          const priceHistory = candles.map((c) => c.close).slice(-30);
+          return { ...m, candles, priceHistory };
         })
       );
 
@@ -121,29 +115,49 @@ export function useMarkets() {
     });
   });
 
-  // WS: NEW_MARKET
+  // WS: NEW_MARKET — fired by both the bucket generator ("upcoming" created) and
+  // the activator ("upcoming" → "active"). The feed only surfaces active rows;
+  // upcoming pre-created slots are ignored here (they show up via the series
+  // endpoint when FE renders a timeline).
   useWebSocket("NEW_MARKET", (data) => {
     const raw = data as Record<string, unknown>;
+    const status = (raw.status as string) || "active";
+    if (status !== "active") return;
+
     const price = Number(raw.currentPrice || raw.current_price || 0);
-    const market: PredictionMarket = {
-      id: raw.id as string,
-      symbol: raw.symbol as string,
-      question: raw.question as string,
-      targetPrice: Number(raw.targetPrice || raw.target_price || 0),
-      currentPrice: price,
-      deadline: Number(raw.deadline || 0),
-      category: (raw.category as PredictionMarket["category"]) || "crypto",
-      yesPool: Number(raw.yesPool || raw.yes_pool || 0),
-      noPool: Number(raw.noPool || raw.no_pool || 0),
-      totalVoters: Number(raw.totalVoters || raw.total_voters || 0),
-      sentiment: Number(raw.sentiment || 50),
-      candles: [{ time: Math.floor(Date.now() / 1000), open: price, high: price, low: price, close: price }],
-      priceHistory: [price],
-      status: "active",
-      resolution: undefined,
-    };
+    const symbol = raw.symbol as string;
+
     setMarketsLocal((prev) => {
-      const updated = [...prev, market];
+      // Dedupe: if we already have this market id, upgrade it; else carry
+      // forward the in-memory candle buffer for this symbol so the chart
+      // doesn't reset when a bucket rotates.
+      const existingById = prev.find((m) => m.id === raw.id);
+      const existingBySymbol = prev.find((m) => m.symbol.toUpperCase() === symbol.toUpperCase());
+      const inheritedCandles = existingBySymbol?.candles ?? [
+        { time: Math.floor(Date.now() / 1000), open: price, high: price, low: price, close: price },
+      ];
+
+      const market: PredictionMarket = {
+        id: raw.id as string,
+        symbol,
+        question: raw.question as string,
+        targetPrice: Number(raw.targetPrice || raw.target_price || 0),
+        currentPrice: price,
+        deadline: Number(raw.deadline || 0),
+        category: (raw.category as PredictionMarket["category"]) || "crypto",
+        yesPool: Number(raw.yesPool || raw.yes_pool || 0),
+        noPool: Number(raw.noPool || raw.no_pool || 0),
+        totalVoters: Number(raw.totalVoters || raw.total_voters || 0),
+        sentiment: Number(raw.sentiment || 50),
+        candles: inheritedCandles,
+        priceHistory: inheritedCandles.map((c) => c.close).slice(-30),
+        status: "active",
+        resolution: undefined,
+      };
+
+      const updated = existingById
+        ? prev.map((m) => (m.id === market.id ? market : m))
+        : [...prev, market];
       setTimeout(() => setStoreMarkets(updated), 0);
       return updated;
     });

@@ -106,7 +106,7 @@ export default function PredictionCard({ market }: { market: PredictionMarket })
           </span>
         </div>
         <PriceChart
-          key={market.id}
+          key={market.symbol}
           candles={market.candles}
           currentPrice={market.currentPrice}
           isPositive={isUp}

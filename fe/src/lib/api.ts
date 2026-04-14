@@ -1,4 +1,4 @@
-import { PredictionMarket, TradeSide } from "./types";
+import { PredictionMarket, TradeSide, Candle } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
@@ -73,6 +73,84 @@ export async function fetchCandles(symbol: string): Promise<number[]> {
   }
 }
 
+/**
+ * Fetch full OHLC candles from the persistent BE cache (falls through to DB,
+ * then Pacifica REST). Replaces the old close-only fetchCandles for chart seed.
+ *
+ * `window` determines history depth — 1h is sufficient for a 5-min market,
+ * 24h for timeline views that need to show past buckets in context.
+ */
+export async function fetchCandleSeries(
+  symbol: string,
+  window: "1h" | "2h" | "6h" | "24h" = "1h",
+): Promise<Candle[]> {
+  try {
+    const res = await fetch(`${API_URL}/api/prices/candles/${symbol}?window=${window}`);
+    if (!res.ok) return [];
+    const json = await res.json();
+    const raw = json.data || [];
+    if (!Array.isArray(raw)) return [];
+    return raw
+      .map((c: { t?: number; o?: number; c?: number; h?: number; l?: number }) => ({
+        time: Math.floor(Number(c.t ?? 0) / 1000), // lightweight-charts expects seconds
+        open: Number(c.o ?? 0),
+        high: Number(c.h ?? 0),
+        low: Number(c.l ?? 0),
+        close: Number(c.c ?? 0),
+      }))
+      .filter((c: Candle) => c.time > 0 && c.close > 0);
+  } catch {
+    return [];
+  }
+}
+
+export interface MarketSeries {
+  symbol: string;
+  past: PredictionMarket[];       // settled, oldest first
+  live: PredictionMarket | null;   // currently active
+  upcoming: PredictionMarket[];    // scheduled, soonest first
+}
+
+/**
+ * Timeline view for a single symbol: past (settled) + live + upcoming buckets.
+ * Used for Polymarket-style series tabs below the chart.
+ */
+export async function fetchMarketSeries(symbol: string, past = 12): Promise<MarketSeries> {
+  const res = await fetch(`${API_URL}/api/markets/symbol/${symbol}?past=${past}`);
+  if (!res.ok) throw new Error("Failed to fetch market series");
+  const json = await res.json();
+  return {
+    symbol: json.symbol,
+    past: (json.past || []).map(mapMarket),
+    live: json.live ? mapMarket(json.live) : null,
+    upcoming: (json.upcoming || []).map(mapMarket),
+  };
+}
+
+export interface PortfolioStats {
+  wallet: string;
+  balance: number;
+  totalVotes: number;
+  wins: number;
+  losses: number;
+  pending: number;
+  winRate: number;
+  totalWagered: number;
+  totalPnl: number;
+  roi: number;
+  avgBet: number;
+  biggestWin: number;
+  biggestLoss: number;
+  totalDeposits: number;
+  totalWithdrawals: number;
+}
+
+export async function fetchPortfolioStats(wallet: string): Promise<PortfolioStats> {
+  const res = await fetch(`${API_URL}/api/portfolio/${wallet}/stats`);
+  if (!res.ok) throw new Error("Failed to fetch portfolio stats");
+  return res.json();
+}
+
 export async function placeVote(
   marketId: string,
   userWallet: string,
@@ -144,7 +222,19 @@ export async function fetchTransactions(wallet: string) {
   return res.json();
 }
 
-export async function fetchSentiment(symbol: string): Promise<{ symbol: string; bullishPercent: number; mentionCount: number }> {
+export interface SentimentResponse {
+  symbol: string;
+  bullishPercent: number;
+  mentionCount: number;
+  source: "llm" | "engagement" | "neutral";
+  confidence: "high" | "medium" | "low";
+  summary?: string;
+  topMentions?: Array<{ link: string; likes: number; reposts: number; views: number }>;
+  lastUpdated: number;
+  refreshing: boolean;
+}
+
+export async function fetchSentiment(symbol: string): Promise<SentimentResponse> {
   const res = await fetch(`${API_URL}/api/sentiment/${symbol}`);
   if (!res.ok) throw new Error("Failed to fetch sentiment");
   return res.json();

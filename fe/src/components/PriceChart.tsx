@@ -9,13 +9,27 @@ interface Props {
   currentPrice: number;
   targetPrice?: number;
   isPositive: boolean;
+  /** When true, chart ignores live currentPrice updates (historical freeze). */
+  frozen?: boolean;
+  /** Settlement price marker — rendered as a colored price line above target. */
+  settlementPrice?: number;
+  /** True = settled YES (settlement price above target). Colors the marker. */
+  settledPositive?: boolean;
 }
 
-export default function PriceChart({ candles, currentPrice, targetPrice }: Props) {
+export default function PriceChart({
+  candles,
+  currentPrice,
+  targetPrice,
+  frozen,
+  settlementPrice,
+  settledPositive,
+}: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const chartRef = useRef<IChartApi | null>(null);
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const priceLineRef = useRef<ReturnType<ISeriesApi<"Line">["createPriceLine"]> | null>(null);
+  const settlementLineRef = useRef<ReturnType<ISeriesApi<"Line">["createPriceLine"]> | null>(null);
   const initializedRef = useRef(false);
 
   // Create chart once
@@ -119,11 +133,29 @@ export default function PriceChart({ candles, currentPrice, targetPrice }: Props
       });
     }
 
-    chartRef.current?.timeScale().fitContent();
-  }, [candles, targetPrice]);
+    // Settlement marker — only rendered in frozen (historical) mode.
+    if (settlementLineRef.current) {
+      seriesRef.current.removePriceLine(settlementLineRef.current);
+      settlementLineRef.current = null;
+    }
+    if (frozen && settlementPrice && settlementPrice > 0) {
+      settlementLineRef.current = seriesRef.current.createPriceLine({
+        price: settlementPrice,
+        color: settledPositive ? "#00b482" : "#dc3246",
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: "Settled",
+      });
+    }
 
-  // Realtime tick update — called every 50-75ms via PRICE_UPDATE
+    chartRef.current?.timeScale().fitContent();
+  }, [candles, targetPrice, frozen, settlementPrice, settledPositive]);
+
+  // Realtime tick update — only runs in live mode. Frozen (historical) mode
+  // skips these so the chart stays pinned to the selected bucket's candles.
   useEffect(() => {
+    if (frozen) return;
     if (!seriesRef.current || !initializedRef.current || !currentPrice || currentPrice <= 0) return;
 
     const now = Math.floor(Date.now() / 1000);
@@ -131,7 +163,7 @@ export default function PriceChart({ candles, currentPrice, targetPrice }: Props
       time: now as Time,
       value: currentPrice,
     });
-  }, [currentPrice]);
+  }, [currentPrice, frozen]);
 
   return (
     <div ref={containerRef} className="w-full h-full [&_a[href*='tradingview']]:!hidden" />

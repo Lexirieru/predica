@@ -2,11 +2,18 @@
 
 import { useEffect, useState, useCallback } from "react";
 import { useAppKitAccount, useAppKit } from "@reown/appkit/react";
-import { fetchUserVotes, fetchTransactions, fetchAllMarkets } from "@/lib/api";
+import {
+  fetchUserVotes,
+  fetchTransactions,
+  fetchPortfolioStats,
+  type PortfolioStats,
+} from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import DepositModal from "@/components/DepositModal";
 import WithdrawModal from "@/components/WithdrawModal";
+import PortfolioStatsCard from "@/components/PortfolioStats";
+import PnlChart from "@/components/PnlChart";
 
 interface VoteEntry {
   id: string;
@@ -16,6 +23,13 @@ interface VoteEntry {
   payout: number;
   status: string;
   createdAt: number;
+  // Enriched via backend left-join (see be commit 34703eb)
+  marketSymbol?: string;
+  marketQuestion?: string;
+  marketTargetPrice?: number;
+  marketResolution?: "yes" | "no" | null;
+  marketDeadline?: number;
+  marketStatus?: string;
 }
 
 interface TxEntry {
@@ -36,7 +50,7 @@ export default function ProfilePage() {
   const balance = useStore((s) => s.balance);
   const [votes, setVotes] = useState<VoteEntry[]>([]);
   const [txs, setTxs] = useState<TxEntry[]>([]);
-  const [symbolMap, setSymbolMap] = useState<Record<string, string>>({});
+  const [stats, setStats] = useState<PortfolioStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
@@ -46,31 +60,26 @@ export default function ProfilePage() {
     if (!wallet) return;
     setLoading(true);
     try {
-      const [votesData, txData, allMarkets] = await Promise.all([
+      const [votesData, txData, statsData] = await Promise.all([
         fetchUserVotes(wallet),
         fetchTransactions(wallet),
-        fetchAllMarkets(),
+        fetchPortfolioStats(wallet),
       ]);
       setVotes(votesData);
       setTxs(txData);
-      const map: Record<string, string> = {};
-      for (const m of allMarkets) map[m.id] = m.symbol;
-      setSymbolMap(map);
+      setStats(statsData);
     } catch {}
     setLoading(false);
   }, [wallet]);
 
   useEffect(() => { loadData(); }, [loadData]);
 
-  // Auto-refresh on settlement or new vote
   useWebSocket("MARKET_RESOLVED", () => { loadData(); });
   useWebSocket("NEW_VOTE", (data) => {
     const vote = data as { wallet: string };
     if (vote.wallet === wallet) loadData();
   });
 
-  const yesVotes = votes.filter((v) => v.side === "yes").length;
-  const noVotes = votes.filter((v) => v.side === "no").length;
   const truncate = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
 
   if (!authenticated) {
@@ -121,21 +130,11 @@ export default function ProfilePage() {
         </div>
       </div>
 
-      {/* Stats */}
-      <div className="grid grid-cols-3 gap-2 mb-4">
-        <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
-          <p className="text-white text-lg font-bold tabular-nums">{votes.length}</p>
-          <p className="text-white/30 text-[10px] uppercase tracking-wider">Votes</p>
-        </div>
-        <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
-          <p className="text-[var(--color-yes)] text-lg font-bold tabular-nums">{yesVotes}</p>
-          <p className="text-white/30 text-[10px] uppercase tracking-wider">Up</p>
-        </div>
-        <div className="p-3 rounded-xl bg-white/[0.03] border border-white/[0.06] text-center">
-          <p className="text-[var(--color-no)] text-lg font-bold tabular-nums">{noVotes}</p>
-          <p className="text-white/30 text-[10px] uppercase tracking-wider">Down</p>
-        </div>
-      </div>
+      {/* Portfolio stats summary */}
+      <PortfolioStatsCard stats={stats} loading={loading && !stats} />
+
+      {/* PnL chart with range filter */}
+      {votes.length > 0 && <PnlChart votes={votes} />}
 
       {/* Tabs */}
       <div className="flex gap-1 mb-3">
@@ -159,7 +158,9 @@ export default function ProfilePage() {
         ) : (
           <div className="space-y-2">
             {votes.slice(0, 30).map((vote) => {
-              const symbol = symbolMap[vote.marketId] || "—";
+              const symbol = vote.marketSymbol || "—";
+              const won = vote.status === "won";
+              const lost = vote.status === "lost";
               return (
               <div key={vote.id} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
                 <div className="flex items-center gap-2">
@@ -171,19 +172,23 @@ export default function ProfilePage() {
                     {vote.side === "yes" ? "▲" : "▼"}
                   </div>
                   <div>
-                    <p className="text-white text-sm font-medium">{symbol} <span className="text-white/40">{vote.side === "yes" ? "Up" : "Down"}</span></p>
-                    <p className="text-white/20 text-[10px]">${vote.amount.toFixed(2)} · {new Date(vote.createdAt).toLocaleString()}</p>
+                    <p className="text-white text-sm font-medium">
+                      {symbol} <span className="text-white/40">{vote.side === "yes" ? "Up" : "Down"}</span>
+                    </p>
+                    <p className="text-white/20 text-[10px]">
+                      ${vote.amount.toFixed(2)} · {new Date(vote.createdAt).toLocaleString()}
+                    </p>
                   </div>
                 </div>
                 <div className="text-right">
-                  {vote.status === "won" && <p className="text-[#00b482] text-sm font-semibold tabular-nums">+${(vote.payout - vote.amount).toFixed(2)}</p>}
-                  {vote.status === "lost" && <p className="text-[#dc3246] text-sm font-semibold tabular-nums">-${vote.amount.toFixed(2)}</p>}
+                  {won && <p className="text-[#00b482] text-sm font-semibold tabular-nums">+${(vote.payout - vote.amount).toFixed(2)}</p>}
+                  {lost && <p className="text-[#dc3246] text-sm font-semibold tabular-nums">-${vote.amount.toFixed(2)}</p>}
                   <span className="text-[10px] font-medium px-2 py-0.5 rounded-full"
                     style={{
-                      backgroundColor: vote.status === "won" ? "rgba(0,180,130,0.1)" : vote.status === "lost" ? "rgba(220,50,70,0.1)" : "rgba(255,255,255,0.05)",
-                      color: vote.status === "won" ? "#00b482" : vote.status === "lost" ? "#dc3246" : "rgba(255,255,255,0.3)",
+                      backgroundColor: won ? "rgba(0,180,130,0.1)" : lost ? "rgba(220,50,70,0.1)" : "rgba(255,255,255,0.05)",
+                      color: won ? "#00b482" : lost ? "#dc3246" : "rgba(255,255,255,0.3)",
                     }}>
-                    {vote.status === "won" ? "Won" : vote.status === "lost" ? "Lost" : "Pending"}
+                    {won ? "Won" : lost ? "Lost" : "Pending"}
                   </span>
                 </div>
               </div>
