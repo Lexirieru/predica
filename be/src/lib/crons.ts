@@ -222,9 +222,9 @@ async function syncCandleForActive() {
 
 export function startMarketGeneratorCron() {
   cron.schedule("*/5 * * * *", async () => {
-    await generateMarketsFromTrending();
+    await ensureUpcomingBuckets();
   });
-  setTimeout(() => generateMarketsFromTrending(), 5000);
+  setTimeout(() => ensureUpcomingBuckets(), 5000);
 }
 
 /**
@@ -308,100 +308,138 @@ function seedSentiment(priceInfo: any, mentionChangePercent = 0): number {
   return Math.max(0, Math.min(100, Math.round(50 + combined * 50)));
 }
 
-async function createMarketForSymbol(
+const HORIZON_MIN = 60; // pre-create buckets 1h ahead
+const SLOT_MS = MARKET_DURATION_MIN * 60_000;
+
+/**
+ * Snap timestamp to the next multiple of SLOT_MS. e.g. if now is 08:02:37
+ * and SLOT_MS=5min, returns 08:05:00. Used to align bucket deadlines to
+ * clock boundaries so they're predictable (:00, :05, :10, ...).
+ */
+function nextSlotBoundary(now: number): number {
+  return Math.ceil(now / SLOT_MS) * SLOT_MS;
+}
+
+async function createBucket(
   symbol: string,
-  prices: Record<string, any>,
+  deadline: number,
   sentiment: number,
+  prices: Record<string, any>,
 ): Promise<boolean> {
+  // Idempotency: skip if a market for this exact (symbol, deadline) already exists.
+  const existing = await marketRepo.getBySymbolDeadline(symbol, deadline);
+  if (existing) return false;
+
   const currentPrice = parseFloat(prices[symbol]?.mark || "0");
-  if (currentPrice <= 0) return false;
-
-  // Defensive guard: re-check active markets right before insert. Without this
-  // a race between the settlement cron and the generator could produce duplicate
-  // active markets for the same symbol.
-  const alreadyActive = await marketRepo.hasActiveForSymbol(symbol);
-  if (alreadyActive) return false;
-
-  const deadline = Date.now() + MARKET_DURATION_MIN * 60 * 1000;
   const question = `${symbol} Price: Higher or Lower in ${MARKET_DURATION_MIN} min?`;
 
+  // targetPrice locked to 0 at creation — the activator cron stamps the real
+  // price when the bucket becomes active. See startMarketActivatorCron.
   const newMarket = await marketRepo.create({
     symbol,
     question,
-    targetPrice: currentPrice,
+    targetPrice: 0,
     currentPrice,
     deadline,
     category: "crypto",
     sentiment,
+    status: "upcoming",
   });
 
   broadcast("NEW_MARKET", newMarket);
   return true;
 }
 
-async function generateMarketsFromTrending() {
+/**
+ * Pre-create upcoming buckets for curated + trending symbols covering the
+ * next HORIZON_MIN window. Buckets are 5-minute slots aligned to clock
+ * boundaries. Idempotent — re-runs skip existing (symbol, deadline) pairs.
+ */
+async function ensureUpcomingBuckets() {
   try {
     const [infoRes, priceRes] = await Promise.all([
       pacifica.getMarketInfo(),
-      pacifica.getPrices()
+      pacifica.getPrices(),
     ]);
-
     if (!infoRes?.data || !priceRes?.data) return;
 
     const pacificaSymbols = new Set<string>(
-      (infoRes.data as any[]).map((d) => d.symbol.toUpperCase())
+      (infoRes.data as any[]).map((d) => d.symbol.toUpperCase()),
     );
 
     const prices: Record<string, any> = {};
     if (Array.isArray(priceRes.data)) {
-      for (const p of priceRes.data) {
-        prices[p.symbol.toUpperCase()] = p;
-      }
+      for (const p of priceRes.data) prices[p.symbol.toUpperCase()] = p;
     }
 
-    const activeMarkets = await marketRepo.getActive();
-    const pickedSymbols = new Set(activeMarkets.map(m => m.symbol.toUpperCase()));
+    // Symbol set: curated (always) + top trending that's listed on Pacifica.
+    const activeSymbols = new Set(CURATED_SYMBOLS.filter((s) => pacificaSymbols.has(s)));
+    try {
+      const trending = await elfa.getTrendingTokens("24h");
+      const tokens = trending?.data?.data || [];
+      for (const t of tokens.slice(0, TRENDING_SCAN_LIMIT)) {
+        const s = t.token.toUpperCase();
+        if (activeSymbols.size >= CURATED_SYMBOLS.length + TRENDING_PER_BATCH) break;
+        if (pacificaSymbols.has(s)) activeSymbols.add(s);
+      }
+    } catch {
+      // Elfa unavailable — curated list alone is still plenty.
+    }
+
+    // Slot schedule: next boundary .. now + HORIZON_MIN.
+    const now = Date.now();
+    const firstDeadline = nextSlotBoundary(now);
+    const lastDeadline = now + HORIZON_MIN * 60_000;
 
     let created = 0;
-
-    // 1) Curated slots — guaranteed major coins, randomized each batch
-    const curatedPool = shuffle(
-      CURATED_SYMBOLS.filter(s => pacificaSymbols.has(s) && !pickedSymbols.has(s))
-    );
-    for (const symbol of curatedPool) {
-      if (created >= CURATED_PER_BATCH) break;
-      const sentiment = seedSentiment(prices[symbol]);
-      const ok = await createMarketForSymbol(symbol, prices, sentiment);
-      if (ok) {
-        pickedSymbols.add(symbol);
-        created++;
-      }
-    }
-
-    // 2) Trending slots — fill remainder with Elfa AI trending tokens
-    const trending = await elfa.getTrendingTokens("24h");
-    const tokens = trending?.data?.data || [];
-
-    let trendingAdded = 0;
-    for (const token of tokens.slice(0, TRENDING_SCAN_LIMIT)) {
-      if (trendingAdded >= TRENDING_PER_BATCH) break;
-      const symbol = token.token.toUpperCase();
-      if (!pacificaSymbols.has(symbol) || pickedSymbols.has(symbol)) continue;
-
-      const sentiment = seedSentiment(prices[symbol], token.change_percent);
-      const ok = await createMarketForSymbol(symbol, prices, sentiment);
-      if (ok) {
-        pickedSymbols.add(symbol);
-        created++;
-        trendingAdded++;
+    for (const symbol of activeSymbols) {
+      const mentionGrowth = 0; // seed sentiment uses price only at creation
+      const sentiment = seedSentiment(prices[symbol], mentionGrowth);
+      for (let deadline = firstDeadline; deadline <= lastDeadline; deadline += SLOT_MS) {
+        const ok = await createBucket(symbol, deadline, sentiment, prices);
+        if (ok) created++;
       }
     }
 
     if (created > 0) {
-      console.log(`[MarketGen] Created ${created} new markets (curated + trending).`);
-      syncCandleSubscriptions(Array.from(pickedSymbols));
+      console.log(`[Buckets] Pre-created ${created} upcoming buckets across ${activeSymbols.size} symbols.`);
+      syncCandleSubscriptions(Array.from(activeSymbols));
     }
   } catch (err) {
-    console.error("[MarketGen] Error:", err);
+    console.error("[Buckets] Error:", err);
   }
+}
+
+/**
+ * Every 10s: transition upcoming → active when the bucket's open time (deadline
+ * minus duration) has arrived. Stamps targetPrice = current mark price at the
+ * moment of activation so users vote against a fair, real-time reference.
+ */
+export function startMarketActivatorCron() {
+  cron.schedule("*/10 * * * * *", async () => {
+    try {
+      const due = await marketRepo.getDueForActivation(Date.now(), SLOT_MS);
+      if (due.length === 0) return;
+
+      // One price fetch covers all symbols in the batch.
+      const priceData = await pacifica.getPrices();
+      const prices: Record<string, number> = {};
+      if (priceData?.data && Array.isArray(priceData.data)) {
+        for (const p of priceData.data) prices[p.symbol.toUpperCase()] = parseFloat(p.mark);
+      }
+
+      for (const m of due) {
+        const mark = prices[m.symbol.toUpperCase()];
+        if (!mark || mark <= 0) continue;
+
+        const ok = await marketRepo.activate(m.id, mark);
+        if (ok) {
+          broadcast("NEW_MARKET", { ...m, status: "active", targetPrice: mark, currentPrice: mark });
+          console.log(`[Activator] ${m.symbol} active @ ${mark} (deadline ${new Date(Number(m.deadline)).toISOString()})`);
+        }
+      }
+    } catch (err) {
+      console.error("[Activator] Error:", err);
+    }
+  });
 }

@@ -43,7 +43,8 @@ export function pushCandle(tick: CandleTick) {
   if (isNewCandle || now - lastWrite >= PERSIST_THROTTLE_MS) {
     lastPersist.set(sym, now);
     persistCandle(sym, tick).catch((err) => {
-      console.warn(`[CandleCache] persist failed for ${sym}:`, (err as Error).message);
+      const e = err as any;
+      console.warn(`[CandleCache] persist failed for ${sym}: ${e?.cause?.message ?? e?.code ?? e?.message}`);
     });
   }
 }

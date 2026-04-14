@@ -52,6 +52,26 @@ router.get("/all", async (_req: Request, res: Response) => {
   }
 });
 
+// GET /api/markets/symbol/:SYMBOL
+// Timeline view for a single asset: past (resolved) + live + upcoming buckets.
+// Designed for Polymarket-style symbol pages where the chart is continuous
+// and the series of rounds shows below it.
+router.get("/symbol/:symbol", async (req: Request, res: Response) => {
+  try {
+    const symbol = req.params.symbol;
+    if (!symbol || symbol.length > 20) {
+      res.status(400).json({ error: "Invalid symbol" });
+      return;
+    }
+    const pastLimit = Math.min(parseInt(req.query.past as string) || 12, 50);
+    const series = await marketRepo.getSeries(symbol, pastLimit);
+    res.json(series);
+  } catch (err) {
+    console.error("[Markets/series] Error:", err);
+    res.status(500).json({ error: "Failed to fetch series" });
+  }
+});
+
 // GET /api/markets/:id
 router.get("/:id", async (req: Request, res: Response) => {
   try {

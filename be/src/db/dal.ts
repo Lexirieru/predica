@@ -34,6 +34,84 @@ export const marketRepo = {
     return !!existing;
   },
 
+  async getBySymbolDeadline(symbol: string, deadline: number) {
+    return await db.query.markets.findFirst({
+      where: and(eq(markets.symbol, symbol), eq(markets.deadline, deadline)),
+    });
+  },
+
+  /**
+   * Return upcoming markets whose "open time" (deadline - slotMs) is at or
+   * before `now`. Caller transitions them to active.
+   */
+  async getDueForActivation(now: number, slotMs: number) {
+    return await db.query.markets.findMany({
+      where: and(
+        eq(markets.status, "upcoming"),
+        sql`${markets.deadline} - ${slotMs} <= ${now}`,
+        sql`${markets.deadline} > ${now}`,
+      ),
+      orderBy: [asc(markets.deadline)],
+    });
+  },
+
+  /**
+   * Conditional upcoming → active transition. Stamps targetPrice and
+   * currentPrice in the same write. Returns false if the row was not in
+   * "upcoming" state (already activated by another worker / settled).
+   */
+  async activate(id: string, targetPrice: number): Promise<boolean> {
+    const result = await db
+      .update(markets)
+      .set({
+        status: "active",
+        targetPrice,
+        currentPrice: targetPrice,
+        updatedAt: Date.now(),
+      })
+      .where(and(eq(markets.id, id), eq(markets.status, "upcoming")))
+      .returning({ id: markets.id });
+    return result.length > 0;
+  },
+
+  /**
+   * Fetch the full series for a symbol — resolved past buckets + the live
+   * active one + upcoming bucket lineup. Used by the series / timeline UI.
+   */
+  async getSeries(symbol: string, pastLimit = 12) {
+    const sym = symbol.toUpperCase();
+    const now = Date.now();
+
+    const past = await db.query.markets.findMany({
+      where: and(
+        eq(markets.symbol, sym),
+        eq(markets.status, "settled"),
+      ),
+      orderBy: [desc(markets.deadline)],
+      limit: pastLimit,
+    });
+
+    const live = await db.query.markets.findFirst({
+      where: and(eq(markets.symbol, sym), eq(markets.status, "active")),
+    });
+
+    const upcoming = await db.query.markets.findMany({
+      where: and(
+        eq(markets.symbol, sym),
+        eq(markets.status, "upcoming"),
+        gte(markets.deadline, now),
+      ),
+      orderBy: [asc(markets.deadline)],
+    });
+
+    return {
+      symbol: sym,
+      past: past.reverse(), // oldest first for timeline rendering
+      live,
+      upcoming,
+    };
+  },
+
   async create(data: any) {
     const [newMarket] = await db
       .insert(markets)

@@ -14,6 +14,7 @@ import {
   startSettlementCron,
   startPriceStream,
   startMarketGeneratorCron,
+  startMarketActivatorCron,
   startCandleCleanupCron,
   warmCandleCache,
 } from "./lib/crons";
@@ -89,6 +90,7 @@ app.get("/api/health", (_req, res) => {
 startSettlementCron();
 startPriceStream();
 startMarketGeneratorCron();
+startMarketActivatorCron();
 startCandleCleanupCron();
 warmCandleCache();
 

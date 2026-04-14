@@ -15,7 +15,7 @@ export const markets = pgTable("markets", {
   noPool: real("no_pool").notNull().default(0),
   totalVoters: integer("total_voters").notNull().default(0),
   sentiment: real("sentiment").notNull().default(50),
-  status: text("status", { enum: ["active", "expired", "settled"] }).notNull().default("active"),
+  status: text("status", { enum: ["upcoming", "active", "expired", "settled"] }).notNull().default("active"),
   resolution: text("resolution", { enum: ["yes", "no"] }),
   createdAt: bigint("created_at", { mode: "number" }).notNull().default(tsDefault),
   updatedAt: bigint("updated_at", { mode: "number" }).notNull().default(tsDefault),
