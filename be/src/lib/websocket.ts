@@ -77,3 +77,13 @@ export function broadcast(type: WsMessageType, data: any) {
     }
   });
 }
+
+/** Number of currently connected WS clients — used by /api/admin/health. */
+export function getConnectedClientCount(): number {
+  if (!wss) return 0;
+  let count = 0;
+  wss.clients.forEach((c) => {
+    if (c.readyState === 1) count++;
+  });
+  return count;
+}

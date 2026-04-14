@@ -11,6 +11,7 @@ import sentimentRouter from "./routes/sentiment";
 import walletRouter from "./routes/wallet";
 import portfolioRouter from "./routes/portfolio";
 import achievementsRouter from "./routes/achievements";
+import adminRouter from "./routes/admin";
 import {
   startSettlementCron,
   startPriceStream,
@@ -83,6 +84,7 @@ app.use("/api/sentiment", sentimentRouter);
 app.use("/api/wallet", walletRouter);
 app.use("/api/portfolio", portfolioRouter);
 app.use("/api/achievements", achievementsRouter);
+app.use("/api/admin", adminRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
