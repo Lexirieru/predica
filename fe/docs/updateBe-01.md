@@ -19,6 +19,27 @@
 
 ---
 
+## 🆕 Arsitektur baru: Polymarket-style timeline
+
+**Ringkasan perubahan besar:**
+
+- Satu symbol (BTC, ETH, dll) sekarang punya **N market** — satu untuk tiap 5-menit window. Pre-created 1 jam ke depan.
+- Market punya status baru: `"upcoming"` (slot pre-created, belum buka untuk vote), `"active"` (slot sekarang, live), `"settled"` (sudah selesai).
+- Candle OHLC sekarang **persistent di DB** — chart gak reset tiap market rotate.
+- Endpoint baru `/api/markets/symbol/:SYMBOL` untuk render timeline tabs di FE.
+
+**Yang perlu FE lakukan:**
+
+| Action | File FE | Detail |
+|--------|---------|--------|
+| Chart: seed dari `/api/prices/candles/:symbol?window=1h` (atau 2h/6h/24h) — data persistent di BE sekarang | `src/hooks/useMarkets.ts` / chart init | [§Candle persistence](#8-candle-persistence) |
+| Ganti `key={market.id}` → `key={market.symbol}` di `<PriceChart>` supaya chart gak remount tiap market rotate | `src/components/PriceChart.tsx` (parent) | [§Chart reset fix](#8-candle-persistence) |
+| Bikin komponen timeline/tabs di bawah chart, data dari `GET /api/markets/symbol/:SYMBOL` | New component | [§Series endpoint](#10-series-endpoint) |
+| Handle status `"upcoming"` — buckets ini belum bisa di-vote, tampilin sebagai outlined pills / "Opens at HH:MM" | Timeline component | [§Predefined buckets](#9-predefined-buckets) |
+| Listener WS `NEW_MARKET` skrg trigger oleh activator juga (bukan cuma generator) — treat sebagai "bucket just went live" | WS handler | [§Predefined buckets](#9-predefined-buckets) |
+
+---
+
 ## 📦 Commits
 
 ### Commit `34703eb` — 2026-04-15
@@ -145,6 +166,98 @@ Logic lama cuma ngukur engagement (popularitas), bukan sentiment. Tweet "BTC cra
 
 #### 7. Market seed sentiment (fix, no FE action)
 `crons.ts generateMarketsFromTrending` dulu set `sentiment: 25 or 75` berdasarkan binary `change_percent > 0`. Sekarang pakai `seedSentiment()` — blend Pacifica price momentum (70%) + Elfa mention growth (30%), mapped ke 0..100. Market baru lahir udah punya seed yang masuk akal, nanti di-upgrade sama LLM saat pertama kali FE request sentiment endpoint.
+
+---
+
+### Commit `0ac09fb` — 2026-04-15
+**Title:** feat: persist candle history to DB + multi-tier chart source
+
+**Files:**
+- `be/src/db/schema.ts` (new `candle_snapshots` table)
+- `be/src/db/migrate.ts`
+- `be/src/lib/candleCache.ts` (rewrite)
+- `be/src/lib/crons.ts`
+- `be/src/index.ts`
+- `be/src/routes/prices.ts`
+
+#### 8. Candle persistence
+Chart "reset ke nol tiap market close" dulu karena candle data cuma in-memory. Sekarang:
+
+- Tabel `candle_snapshots` PK `(symbol, interval, openTime)` — upsert tiap tick WS masuk, throttled 2s per symbol (tapi selalu langsung persist saat candle boundary baru, biar candle yang udah close gak ilang).
+- Endpoint `GET /api/prices/candles/:symbol?window=1h|2h|6h|24h` — multi-tier source:
+  1. Hot cache (in-memory, 60 candle terakhir)
+  2. DB candle_snapshots
+  3. Pacifica REST /kline (last resort)
+- Response tambahan field `source` (`"cache"` | `"db"` | `"rest"`) + `window` untuk debugging.
+- Warm cache on startup: BE baca DB untuk symbol yang lagi active → chart langsung punya data walaupun BE baru restart.
+- Daily cleanup cron jam 03:15 UTC: prune candle lebih dari **2 hari** (`CANDLE_RETENTION_DAYS`).
+
+**FE implication:**
+- `fetchKline` lama bisa dihapus. Pakai `/api/prices/candles/:symbol?window=1h` untuk seed 60 candle.
+- Chart `<PriceChart key={market.symbol} />` — kalau `key` masih `market.id`, React remount tiap market rotate → chart tetep reset walaupun data DB udah persistent. Wajib ganti ke `market.symbol`.
+- Kalau lo mau chart yang "deeper history" (misal 24h), tinggal ganti query param — data-nya udah ada di DB.
+
+---
+
+### Commit `4618c93` — 2026-04-15
+**Title:** feat: predefined time buckets + market activator + series endpoint
+
+**Files:**
+- `be/src/db/schema.ts` (`markets.status` enum expanded)
+- `be/src/db/dal.ts`
+- `be/src/lib/crons.ts`
+- `be/src/lib/candleCache.ts`
+- `be/src/routes/markets.ts`
+- `be/src/index.ts`
+
+#### 9. Predefined buckets
+Generator `generateMarketsFromTrending` diganti `ensureUpcomingBuckets`:
+
+- Untuk tiap curated symbol + top trending: pastiin **12 bucket upcoming** exist buat window 5-menit aligned ke clock boundary (:00, :05, :10, ...) selama 1 jam ke depan.
+- Bucket baru di-create dengan `status: "upcoming"` dan `targetPrice: 0`.
+- Idempotent — re-run skip `(symbol, deadline)` yang udah exist.
+
+**Activator cron (baru, tiap 10s):**
+- Find upcoming markets yang `deadline - 5min <= now` (= sudah masuk window-nya)
+- Transition ke `active`, stamp `targetPrice = current_mark_price` saat itu juga
+- Broadcast `NEW_MARKET` dengan payload activated (status active + targetPrice real)
+
+**Kenapa dynamic targetPrice:**
+Kalau pre-create market buat 09:00 sekarang (jam 08:00), `targetPrice` = current price 08:00 udah gak valid by 09:00. Activator solve ini dengan stamp on-demand.
+
+**Vote flow:**
+Vote endpoint udah check `market.status !== "active"` → reject. Jadi user gak bisa vote di bucket upcoming (by design). Kalau nanti mau pre-betting, bisa ditambahkan post-hackathon.
+
+**FE implication:**
+- `GET /api/markets` tetep return active only — feed utama gak berubah.
+- Handle `status === "upcoming"` di UI kalau ambil data dari series endpoint: tampilin sebagai pill outlined "Opens at HH:MM", gak bisa di-click untuk vote.
+- `NEW_MARKET` WS event sekarang bisa fired oleh **2 source**: generator (upcoming created) DAN activator (upcoming → active). FE bisa bedain pake `status` field di payload.
+
+#### 10. Series endpoint
+`GET /api/markets/symbol/:SYMBOL?past=12` return:
+```ts
+{
+  symbol: "BTC",
+  past: [                   // settled markets, OLDEST FIRST (timeline ascending)
+    { id, deadline, targetPrice, resolution, yesPool, noPool, ... },
+    ...
+  ],
+  live: {                   // current active market, nullable
+    id, deadline, targetPrice, yesPool, noPool, currentPrice, ...
+  } | null,
+  upcoming: [               // future buckets, soonest first
+    { id, deadline, targetPrice: 0, ... },
+    ...
+  ]
+}
+```
+
+**FE use case:**
+- Timeline tabs di bawah chart: `[...past, live, ...upcoming]` render jadi pills horizontal.
+- Live = merah blink/glow indicator.
+- Past = greyed + icon win/loss sesuai resolution.
+- Upcoming = outlined + waktu "Opens at HH:MM".
+- User klik past bucket → scroll chart ke timestamp itu (chart data udah coverage DB).
 
 ---
 
