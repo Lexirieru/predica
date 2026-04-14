@@ -17,6 +17,7 @@ import {
 } from "./pacificaWs";
 import { pushCandle, pruneOldCandles, warmCacheFromDb, CANDLE_RETENTION_DAYS } from "./candleCache";
 import { isElfaTracked, warmElfaValidity } from "./elfaValidator";
+import { evaluateAchievements } from "./achievements";
 
 let isSettling = false;
 
@@ -142,6 +143,15 @@ export function startSettlementCron() {
               price: markPrice,
             });
             console.log(`[Settlement] SUCCESS: ${symbol} Resolved as ${resolution.toUpperCase()}`);
+
+            // Evaluate badges for everyone who voted on this market. Fire-and-
+            // forget so settlement throughput isn't blocked on WS / DB writes.
+            const touched = new Set(marketVotes.map((v) => v.userWallet));
+            for (const wallet of touched) {
+              evaluateAchievements(wallet).catch((e) =>
+                console.warn(`[Achievements] eval failed for ${wallet}:`, (e as Error).message),
+              );
+            }
           }
         } catch (txErr) {
           console.error(`[Settlement] Transaction failed for ${market.id}:`, txErr);

@@ -78,6 +78,22 @@ export const candleSnapshots = pgTable("candle_snapshots", {
   }
 });
 
+// Gamification: earned badges per wallet. `badgeType` is a stable enum id
+// that the FE maps to icon + label. `metadata` carries optional context
+// (e.g. streak length, bet amount that triggered the badge).
+export const achievements = pgTable("achievements", {
+  id: text("id").primaryKey(),
+  wallet: text("wallet").notNull(),
+  badgeType: text("badge_type").notNull(),
+  unlockedAt: bigint("unlocked_at", { mode: "number" }).notNull().default(tsDefault),
+  metadata: text("metadata"),
+}, (table) => {
+  return {
+    walletIdx: index("idx_achievements_wallet").on(table.wallet),
+    walletBadgeUnique: uniqueIndex("uq_achievement_wallet_badge").on(table.wallet, table.badgeType),
+  }
+});
+
 export const transactions = pgTable("transactions", {
   id: text("id").primaryKey(),
   wallet: text("wallet").notNull(),

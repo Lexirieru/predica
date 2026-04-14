@@ -75,6 +75,16 @@ async function migrate() {
           );
         END IF;
 
+        IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'achievements') THEN
+          CREATE TABLE achievements (
+            id TEXT PRIMARY KEY,
+            wallet TEXT NOT NULL,
+            badge_type TEXT NOT NULL,
+            unlocked_at BIGINT NOT NULL DEFAULT (extract(epoch from now()) * 1000)::bigint,
+            metadata TEXT
+          );
+        END IF;
+
         IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'transactions') THEN
           CREATE TABLE transactions (
             id TEXT PRIMARY KEY,
@@ -95,6 +105,8 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_tx_wallet ON transactions(wallet);
       CREATE INDEX IF NOT EXISTS idx_candle_symbol_time ON candle_snapshots(symbol, open_time);
       CREATE INDEX IF NOT EXISTS idx_candle_open_time ON candle_snapshots(open_time);
+      CREATE INDEX IF NOT EXISTS idx_achievements_wallet ON achievements(wallet);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_achievement_wallet_badge ON achievements(wallet, badge_type);
     `);
     console.log("[Migration] SUCCESS: Schema synchronized.");
   } catch (err) {

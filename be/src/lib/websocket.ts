@@ -6,7 +6,8 @@ export type WsMessageType =
   | "CANDLE_UPDATE"
   | "NEW_MARKET"
   | "MARKET_RESOLVED"
-  | "NEW_VOTE";
+  | "NEW_VOTE"
+  | "BADGE_UNLOCKED";
 
 export interface WsMessage {
   type: WsMessageType;
