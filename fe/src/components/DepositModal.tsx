@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 import type { Provider } from "@reown/appkit-adapter-solana/react";
@@ -8,9 +8,9 @@ import { Connection, PublicKey, Transaction } from "@solana/web3.js";
 import { createTransferInstruction, getAssociatedTokenAddress, createAssociatedTokenAccountInstruction } from "@solana/spl-token";
 import { verifyDeposit } from "@/lib/api";
 
-const USDP_MINT = new PublicKey("USDPqRbLidFGufty2s3oizmDEKdqx7ePTqzDMbf5ZKM");
-const BACKEND_WALLET = new PublicKey("8SnuZxuTXWRfmHPypqCAq7tFeqboSkyAtrd9ng34VPBy");
-const RPC_URL = "https://api.devnet.solana.com";
+const USDP_MINT = new PublicKey(process.env.NEXT_PUBLIC_USDP_MINT || "USDPqRbLidFGufty2s3oizmDEKdqx7ePTqzDMbf5ZKM");
+const BACKEND_WALLET = new PublicKey(process.env.NEXT_PUBLIC_BACKEND_WALLET || "8SnuZxuTXWRfmHPypqCAq7tFeqboSkyAtrd9ng34VPBy");
+const RPC_URL = process.env.NEXT_PUBLIC_SOLANA_RPC || "https://api.devnet.solana.com";
 const QUICK_AMOUNTS = [10, 50, 100, 500];
 
 interface Props {
@@ -25,6 +25,23 @@ export default function DepositModal({ open, onClose, onSuccess }: Props) {
   const [amount, setAmount] = useState(0);
   const [status, setStatus] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const [walletUsdp, setWalletUsdp] = useState<number | null>(null);
+
+  // Fetch on-chain USDP balance when modal opens
+  useEffect(() => {
+    if (!open || !address) { setWalletUsdp(null); return; }
+    const fetchUsdp = async () => {
+      try {
+        const conn = new Connection(RPC_URL, "confirmed");
+        const ata = await getAssociatedTokenAddress(USDP_MINT, new PublicKey(address));
+        const bal = await conn.getTokenAccountBalance(ata);
+        setWalletUsdp(parseFloat(bal.value.uiAmountString || "0"));
+      } catch {
+        setWalletUsdp(0);
+      }
+    };
+    fetchUsdp();
+  }, [open, address]);
 
   const handleDeposit = async () => {
     if (amount <= 0 || submitting || !isConnected || !address || !walletProvider) return;
@@ -106,10 +123,20 @@ export default function DepositModal({ open, onClose, onSuccess }: Props) {
                 </button>
               </div>
 
-              <div className="text-center mb-4">
-                <p className="text-white/30 text-xs mb-1">Amount</p>
+              {/* On-chain USDP balance */}
+              <div className="text-center mb-2 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+                <p className="text-white/25 text-[10px] uppercase tracking-wider">Wallet USDP</p>
+                <p className="text-white text-lg font-bold tabular-nums">
+                  {walletUsdp !== null ? `$${walletUsdp.toFixed(2)}` : "Loading..."}
+                </p>
+              </div>
+
+              <div className="text-center mb-4 mt-3">
+                <p className="text-white/30 text-xs mb-1">Deposit Amount</p>
                 <p className="text-white text-4xl font-bold tabular-nums">${amount}</p>
-                <p className="text-white/15 text-[10px] mt-1">USDP from your wallet → Predica</p>
+                {walletUsdp !== null && amount > walletUsdp && (
+                  <p className="text-[var(--color-no)] text-[10px] mt-1">Exceeds wallet balance</p>
+                )}
               </div>
 
               <div className="flex gap-2 justify-center mb-4">
@@ -127,7 +154,7 @@ export default function DepositModal({ open, onClose, onSuccess }: Props) {
                 </p>
               )}
 
-              <button onClick={handleDeposit} disabled={amount <= 0 || submitting}
+              <button onClick={handleDeposit} disabled={amount <= 0 || submitting || (walletUsdp !== null && amount > walletUsdp)}
                 className="w-full min-h-[52px] rounded-2xl font-bold text-base transition-all duration-150 disabled:opacity-30 active:scale-[0.97]"
                 style={{ backgroundColor: "#00b482", color: "#fff" }}
               >

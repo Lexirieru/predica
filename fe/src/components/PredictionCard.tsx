@@ -6,8 +6,8 @@ import { useStore } from "@/store/useStore";
 import PriceChart from "./PriceChart";
 
 function formatPrice(price: number): string {
-  if (price >= 1000) return `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
-  if (price >= 1) return `$${price.toFixed(2)}`;
+  if (price >= 10000) return `$${price.toLocaleString("en-US", { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+  if (price >= 1) return `$${price.toFixed(3)}`;
   return `$${price.toFixed(6)}`;
 }
 
@@ -106,7 +106,9 @@ export default function PredictionCard({ market }: { market: PredictionMarket })
           </span>
         </div>
         <PriceChart
-          data={market.priceHistory}
+          key={market.id}
+          candles={market.candles}
+          currentPrice={market.currentPrice}
           isPositive={isUp}
           targetPrice={market.targetPrice}
         />

@@ -1,20 +1,22 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef } from "react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { useStore } from "@/store/useStore";
-import { placeVote, fetchBalance } from "@/lib/api";
-import { useAppKitAccount } from "@reown/appkit/react";
+import { placeVote } from "@/lib/api";
+import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
+import type { Provider } from "@reown/appkit-adapter-solana";
+import bs58 from "bs58";
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 const SWIPE_THRESHOLD = 80;
 
 export default function TradeModal() {
-  const { tradeModalOpen, tradeModalSide, tradeModalMarketId, closeTradeModal, markets } =
+  const { tradeModalOpen, tradeModalSide, tradeModalMarketId, closeTradeModal, markets, balance, setBalance } =
     useStore();
   const { address, isConnected } = useAppKitAccount();
+  const { walletProvider } = useAppKitProvider<Provider>("solana");
   const [amount, setAmount] = useState<number>(0);
-  const [balance, setBalance] = useState<number>(0);
   const [submitting, setSubmitting] = useState(false);
   const [status, setStatus] = useState("");
   const dragStartTime = useRef<number>(0);
@@ -24,12 +26,6 @@ export default function TradeModal() {
   const colorHex = isUp ? "#00D1A9" : "#FF4976";
   const label = isUp ? "Up" : "Down";
 
-  useEffect(() => {
-    if (tradeModalOpen && address) {
-      fetchBalance(address).then((d) => setBalance(d.balance)).catch(() => {});
-    }
-  }, [tradeModalOpen, address]);
-
   const handleDragStart = () => { dragStartTime.current = Date.now(); };
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
     const elapsed = Date.now() - dragStartTime.current;
@@ -38,7 +34,7 @@ export default function TradeModal() {
   };
 
   const handleConfirm = async () => {
-    if (!isConnected || !address) return;
+    if (!isConnected || !address || !walletProvider) return;
     if (!market || !tradeModalSide || submitting || amount <= 0) return;
 
     if (amount > balance) {
@@ -47,10 +43,18 @@ export default function TradeModal() {
     }
 
     setSubmitting(true);
-    setStatus("Placing vote...");
+    setStatus("Signing...");
 
     try {
-      const result = await placeVote(market.id, address, tradeModalSide, amount);
+      // Sign auth message matching backend format: "Predica Auth: VOTE by {wallet} at {timestamp}"
+      const timestamp = Date.now();
+      const message = `Predica Auth: VOTE by ${address} at ${timestamp}`;
+      const encoded = new TextEncoder().encode(message);
+      const sigBytes = await walletProvider.signMessage(encoded);
+      const signature = bs58.encode(sigBytes);
+
+      setStatus("Placing vote...");
+      const result = await placeVote(market.id, address, tradeModalSide, amount, signature, timestamp);
       setBalance(result.balance);
       setStatus("Vote placed!");
       setTimeout(() => { closeTradeModal(); setAmount(0); setStatus(""); }, 800);

@@ -1,9 +1,9 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import { PredictionMarket } from "@/lib/types";
-import { fetchMarkets } from "@/lib/api";
 import { useStore } from "@/store/useStore";
+import { useMarkets } from "@/hooks/useMarkets";
 import CountdownTimer from "@/components/CountdownTimer";
 import OddsBar from "@/components/OddsBar";
 import { useRouter } from "next/navigation";
@@ -11,28 +11,17 @@ import { useRouter } from "next/navigation";
 type Filter = "all" | "trending" | "ending";
 
 function formatPrice(price: number): string {
-  if (price >= 1000) return `$${price.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-  if (price >= 1) return `$${price.toFixed(2)}`;
-  return `$${price.toFixed(4)}`;
+  if (price >= 10000) return `$${price.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
+  if (price >= 1) return `$${price.toFixed(3)}`;
+  return `$${price.toFixed(6)}`;
 }
 
 export default function ExplorePage() {
-  const [markets, setMarkets] = useState<PredictionMarket[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { markets, loading } = useMarkets();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const { setCurrentMarketIndex, setMarkets: setStoreMarkets } = useStore();
+  const { setCurrentMarketIndex } = useStore();
   const router = useRouter();
-
-  useEffect(() => {
-    fetchMarkets()
-      .then((data) => {
-        setMarkets(data);
-        setStoreMarkets(data);
-      })
-      .catch(() => {})
-      .finally(() => setLoading(false));
-  }, [setStoreMarkets]);
 
   const filtered = markets
     .filter((m) => {

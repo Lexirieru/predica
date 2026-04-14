@@ -29,6 +29,19 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
   const containerRef = useRef<HTMLDivElement>(null);
   // Fix from fe-swipenit: lock transitions to prevent rapid-fire from trackpad
   const canTransition = useRef(true);
+  const currentMarketIdRef = useRef<string | null>(null);
+
+  // Stabilize: when markets array changes, keep showing the same market
+  useEffect(() => {
+    if (markets.length === 0) return;
+    const currentId = currentMarketIdRef.current;
+    if (currentId) {
+      const newIdx = markets.findIndex((m) => m.id === currentId);
+      if (newIdx >= 0 && newIdx !== currentMarketIndex) {
+        setCurrentMarketIndex(newIdx);
+      }
+    }
+  }, [markets, currentMarketIndex, setCurrentMarketIndex]);
 
   const goTo = useCallback(
     (dir: number) => {
@@ -95,7 +108,9 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
 
   if (markets.length === 0) return null;
 
-  const market = markets[currentMarketIndex];
+  const safeIndex = currentMarketIndex < markets.length ? currentMarketIndex : 0;
+  const market = markets[safeIndex];
+  currentMarketIdRef.current = market.id;
 
   return (
     <div

@@ -3,6 +3,7 @@
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { requestWithdraw } from "@/lib/api";
+import { useStore } from "@/store/useStore";
 
 const QUICK_AMOUNTS = [10, 50, 100, 500];
 
@@ -17,7 +18,9 @@ interface Props {
 export default function WithdrawModal({ open, onClose, onSuccess, wallet, balance }: Props) {
   const [amount, setAmount] = useState(0);
   const [status, setStatus] = useState("");
+  const [txLink, setTxLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  const setStoreBalance = useStore((s) => s.setBalance);
 
   const handleWithdraw = async () => {
     if (amount <= 0 || amount > balance || submitting) return;
@@ -27,8 +30,11 @@ export default function WithdrawModal({ open, onClose, onSuccess, wallet, balanc
 
     try {
       const result = await requestWithdraw(wallet, amount);
-      setStatus(`Withdrawn! TX: ${result.txSignature.slice(0, 12)}...`);
-      setTimeout(() => { onSuccess(); onClose(); setAmount(0); setStatus(""); }, 1500);
+      setStoreBalance(result.balance);
+      const sig = result.txSignature;
+      setTxLink(`https://explorer.solana.com/tx/${sig}?cluster=devnet`);
+      setStatus("Withdrawn!");
+      setTimeout(() => { onSuccess(); onClose(); setAmount(0); setStatus(""); setTxLink(""); }, 3000);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Withdrawal failed");
     } finally {
@@ -86,9 +92,15 @@ export default function WithdrawModal({ open, onClose, onSuccess, wallet, balanc
               </div>
 
               {status && (
-                <p className={`text-center text-xs mb-3 ${status.includes("ail") ? "text-[var(--color-no)]" : status.includes("TX") ? "text-[var(--color-yes)]" : "text-white/40"}`}>
+                <p className={`text-center text-xs mb-2 ${status.includes("ail") ? "text-[var(--color-no)]" : status.includes("ithdrawn") ? "text-[var(--color-yes)]" : "text-white/40"}`}>
                   {status}
                 </p>
+              )}
+              {txLink && (
+                <a href={txLink} target="_blank" rel="noopener noreferrer"
+                  className="block text-center text-[10px] text-[var(--color-yes)] underline mb-3">
+                  View on Solana Explorer →
+                </a>
               )}
 
               <button onClick={handleWithdraw} disabled={amount <= 0 || amount > balance || submitting}

@@ -1,3 +1,11 @@
+export interface Candle {
+  time: number; // unix seconds (lightweight-charts uses seconds)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 export interface PredictionMarket {
   id: string;
   symbol: string;
@@ -10,8 +18,9 @@ export interface PredictionMarket {
   noPool: number;
   totalVoters: number;
   sentiment: number; // 0-100 bullish percentage
-  priceHistory: number[]; // simplified price array for mini chart
-  status: "active" | "resolved" | "expired";
+  candles: Candle[]; // OHLC candle data from Pacifica WS
+  priceHistory: number[]; // kept for fallback
+  status: "active" | "resolved" | "expired" | "settled";
   resolution?: "yes" | "no";
 }
 

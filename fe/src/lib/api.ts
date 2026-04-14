@@ -15,7 +15,8 @@ function mapMarket(raw: any): PredictionMarket {
     noPool: Number(raw.noPool || raw.no_pool || 0),
     totalVoters: Number(raw.totalVoters || raw.total_voters || 0),
     sentiment: Number(raw.sentiment || 50),
-    priceHistory: [], // will be filled by kline data
+    candles: [],
+    priceHistory: [],
     status: raw.status || "active",
     resolution: raw.resolution,
   };
@@ -24,6 +25,13 @@ function mapMarket(raw: any): PredictionMarket {
 export async function fetchMarkets(): Promise<PredictionMarket[]> {
   const res = await fetch(`${API_URL}/api/markets`);
   if (!res.ok) throw new Error("Failed to fetch markets");
+  const data = await res.json();
+  return (data as Record<string, unknown>[]).map(mapMarket);
+}
+
+export async function fetchAllMarkets(): Promise<PredictionMarket[]> {
+  const res = await fetch(`${API_URL}/api/markets/all`);
+  if (!res.ok) throw new Error("Failed to fetch all markets");
   const data = await res.json();
   return (data as Record<string, unknown>[]).map(mapMarket);
 }
@@ -50,15 +58,15 @@ export async function fetchPrices(): Promise<Record<string, { mark: string; orac
   return map;
 }
 
-export async function fetchKline(symbol: string): Promise<number[]> {
+export async function fetchCandles(symbol: string): Promise<number[]> {
   try {
-    const res = await fetch(`${API_URL}/api/prices/kline/${symbol}?interval=1h`);
+    const res = await fetch(`${API_URL}/api/prices/candles/${symbol}`);
     if (!res.ok) return [];
     const json = await res.json();
-    const candles = json.data || json;
+    const candles = json.data || [];
     if (!Array.isArray(candles)) return [];
-    return candles.map((c: { close?: string; c?: string }) =>
-      parseFloat(c.close || c.c || "0")
+    return candles.map((c: { c?: number; close?: number }) =>
+      Number(c.c || c.close || 0)
     ).filter((v: number) => v > 0);
   } catch {
     return [];
@@ -69,11 +77,17 @@ export async function placeVote(
   marketId: string,
   userWallet: string,
   side: TradeSide,
-  amount: number
+  amount: number,
+  signature: string,
+  timestamp: number
 ) {
   const res = await fetch(`${API_URL}/api/vote`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-signature": signature,
+      "x-timestamp": String(timestamp),
+    },
     body: JSON.stringify({ marketId, userWallet, side, amount }),
   });
   if (!res.ok) {
@@ -122,4 +136,16 @@ export async function requestWithdraw(wallet: string, amount: number) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Withdrawal failed");
   return data;
+}
+
+export async function fetchTransactions(wallet: string) {
+  const res = await fetch(`${API_URL}/api/wallet/transactions/${wallet}`);
+  if (!res.ok) throw new Error("Failed to fetch transactions");
+  return res.json();
+}
+
+export async function fetchSentiment(symbol: string): Promise<{ symbol: string; bullishPercent: number; mentionCount: number }> {
+  const res = await fetch(`${API_URL}/api/sentiment/${symbol}`);
+  if (!res.ok) throw new Error("Failed to fetch sentiment");
+  return res.json();
 }
