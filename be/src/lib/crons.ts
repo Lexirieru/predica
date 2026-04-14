@@ -70,13 +70,18 @@ export function startSettlementCron() {
 
         try {
           await db.transaction(async (tx) => {
-            // Resolve market
-            await marketRepo.resolve(market.id, resolution as "yes" | "no");
+            // Conditional transition active → settled. If another process/instance
+            // already settled this market, we bail out without touching payouts.
+            const won = await marketRepo.resolve(market.id, resolution as "yes" | "no", tx);
+            if (!won) {
+              console.log(`[Settlement] ${symbol} already settled by another worker — skip.`);
+              return;
+            }
 
-            broadcast("MARKET_RESOLVED", { 
-              marketId: market.id, 
-              resolution, 
-              price: markPrice 
+            broadcast("MARKET_RESOLVED", {
+              marketId: market.id,
+              resolution,
+              price: markPrice
             });
 
             if (marketVotes.length > 0) {

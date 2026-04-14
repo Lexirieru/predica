@@ -1,8 +1,19 @@
 import { Router, Request, Response } from "express";
+import { z } from "zod";
 import { marketRepo, voteRepo } from "../db/dal";
 import * as pacifica from "../lib/pacifica";
 
 const router = Router();
+
+const CreateMarketSchema = z.object({
+  symbol: z.string().min(1).max(20),
+  question: z.string().min(5).max(500),
+  targetPrice: z.number().positive().finite(),
+  currentPrice: z.number().positive().finite().optional(),
+  deadline: z.number().int().refine((v) => v > Date.now(), "deadline must be in the future"),
+  category: z.string().max(40).optional(),
+  sentiment: z.number().min(0).max(100).optional(),
+});
 
 // GET /api/markets — active markets with live prices
 router.get("/", async (_req: Request, res: Response) => {
@@ -31,11 +42,12 @@ router.get("/", async (_req: Request, res: Response) => {
   }
 });
 
-// GET /api/markets/all — all markets including resolved
+// GET /api/markets/all — all markets including resolved (max 200)
 router.get("/all", async (_req: Request, res: Response) => {
   try {
-    res.json(await getAllMarkets());
-  } catch {
+    res.json(await marketRepo.getAll());
+  } catch (err) {
+    console.error("[Markets/all] Error:", err);
     res.status(500).json({ error: "Failed to fetch markets" });
   }
 });
@@ -57,10 +69,16 @@ router.get("/:id", async (req: Request, res: Response) => {
 
 // POST /api/markets — create a new prediction market
 router.post("/", async (req: Request, res: Response) => {
+  const parsed = CreateMarketSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid payload", details: parsed.error.issues });
+    return;
+  }
   try {
-    const market = await marketRepo.create(req.body);
+    const market = await marketRepo.create(parsed.data);
     res.status(201).json(market);
-  } catch {
+  } catch (err) {
+    console.error("[Markets/create] Error:", err);
     res.status(500).json({ error: "Failed to create market" });
   }
 });

@@ -16,6 +16,12 @@ export const marketRepo = {
       orderBy: [asc(markets.deadline)],
     });
   },
+  async getAll(limit = 200) {
+    return await db.query.markets.findMany({
+      orderBy: [desc(markets.createdAt)],
+      limit,
+    });
+  },
   async getById(id: string) {
     return await db.query.markets.findFirst({ where: eq(markets.id, id) });
   },
@@ -41,11 +47,18 @@ export const marketRepo = {
       .where(eq(markets.id, id));
   },
 
-  async resolve(id: string, resolution: "yes" | "no", exec: Executor = db) {
-    await exec
+  /**
+   * Conditional resolve: only transitions "active" → "settled".
+   * Returns true if this call won the race and actually transitioned the row.
+   * Caller must treat a `false` return as "already settled — skip payout logic".
+   */
+  async resolve(id: string, resolution: "yes" | "no", exec: Executor = db): Promise<boolean> {
+    const result = await exec
       .update(markets)
       .set({ status: "settled", resolution, updatedAt: Date.now() })
-      .where(eq(markets.id, id));
+      .where(and(eq(markets.id, id), eq(markets.status, "active")))
+      .returning({ id: markets.id });
+    return result.length > 0;
   },
 
   async addToPool(

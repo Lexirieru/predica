@@ -294,6 +294,19 @@ Random padding 20-70 ditambahin tiap render. Gak honest.
 
 ---
 
+## 17b. Security Hardening BE (2026-04-14) — cek FE implications
+
+Baru saja di-apply di BE, beberapa punya dampak minor ke FE:
+
+- **CORS strict**: BE sekarang cuma terima request dari origin di env `CORS_ORIGINS` (default `http://localhost:3000`). Kalau FE di-deploy ke domain lain (Vercel preview, prod, dll), tambahin di env BE.
+- **Rate limit global**: 120 req/menit/IP untuk semua endpoint `/api/*`. **Tight limit 20 req/menit/IP** buat `/api/vote` dan `/api/wallet/*`. FE dapet response 429 kalau lewat — tampilin toast "Slow down, terlalu banyak request" yang user-friendly, jangan crash.
+- **Body size**: max 10KB. FE payload kita jauh di bawah ini, gak ada masalah.
+- **Vote amount limits**: min `$0.01`, max `$1,000,000`. Validate di FE juga biar error message jelas sebelum request.
+- **Deposit/withdraw limits**: min `$1`, max `$1,000,000`. Update QUICK_AMOUNTS modal jika ada opsi di bawah $1.
+- **Validation errors**: POST endpoint sekarang return `{ error: "Invalid X payload", details: [...Zod issues] }`. FE error handler bisa tampilin `details` ke user kalau mau granular.
+
+---
+
 ## 18. Perubahan BE Non-FE-Breaking (context)
 
 Biar partner FE tau konteksnya:

@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { z } from "zod";
 import { marketRepo, voteRepo, userRepo } from "../db/dal";
 import { db } from "../db";
 import { users } from "../db/schema";
@@ -8,20 +9,31 @@ import { authMiddleware } from "../lib/middleware";
 
 const router = Router();
 
+const MAX_VOTE_AMOUNT = 1_000_000; // $1M cap per vote
+const MIN_VOTE_AMOUNT = 0.01;
+
+const VoteSchema = z.object({
+  marketId: z.string().min(1),
+  userWallet: z.string().min(20).max(64),
+  side: z.enum(["yes", "no"]),
+  amount: z.coerce
+    .number()
+    .positive()
+    .finite()
+    .min(MIN_VOTE_AMOUNT, `Minimum vote ${MIN_VOTE_AMOUNT}`)
+    .max(MAX_VOTE_AMOUNT, `Maximum vote ${MAX_VOTE_AMOUNT}`),
+});
+
 // POST /api/vote — atomic: debit balance, insert vote, update pool, upsert user stats
 router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => {
-  try {
-    const { marketId, userWallet, side, amount } = req.body;
-    const amountNum = parseFloat(amount);
+  const parsed = VoteSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid vote payload", details: parsed.error.issues });
+    return;
+  }
+  const { marketId, userWallet, side, amount: amountNum } = parsed.data;
 
-    if (!marketId || !userWallet || !side || !(amountNum > 0)) {
-      res.status(400).json({ error: "Invalid vote payload" });
-      return;
-    }
-    if (side !== "yes" && side !== "no") {
-      res.status(400).json({ error: "side must be 'yes' or 'no'" });
-      return;
-    }
+  try {
 
     const market = await marketRepo.getById(marketId);
     if (!market || market.status !== "active") {

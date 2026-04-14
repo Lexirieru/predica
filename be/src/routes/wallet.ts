@@ -1,4 +1,5 @@
 import { Router, Request, Response } from "express";
+import { z } from "zod";
 import { db } from "../db";
 import { users, transactions } from "../db/schema";
 import { eq, desc, sql, and, gte } from "drizzle-orm";
@@ -8,20 +9,41 @@ import { authMiddleware } from "../lib/middleware";
 
 const router = Router();
 
-// In-process serialization per wallet to guard against double-click withdraw storms.
-// (Defense-in-depth; DB-level conditional UPDATE is the real correctness guarantee.)
-const withdrawLocks = new Set<string>();
+const MIN_AMOUNT = 1;        // $1 minimum deposit/withdraw
+const MAX_AMOUNT = 1_000_000; // $1M cap
+
+const DepositSchema = z.object({
+  wallet: z.string().min(20).max(64),
+  amount: z.coerce.number().positive().finite().min(MIN_AMOUNT).max(MAX_AMOUNT),
+  txSignature: z.string().min(40).max(200),
+});
+
+const WithdrawSchema = z.object({
+  wallet: z.string().min(20).max(64),
+  amount: z.coerce.number().positive().finite().min(MIN_AMOUNT).max(MAX_AMOUNT),
+});
+
+// Postgres advisory-lock key space for withdraw serialization (64-bit space).
+// We hash wallet string to a stable 31-bit int to stay away from collisions
+// with any other subsystem using advisory locks.
+function walletLockKey(wallet: string): number {
+  let h = 0;
+  for (let i = 0; i < wallet.length; i++) {
+    h = (h * 31 + wallet.charCodeAt(i)) | 0;
+  }
+  return Math.abs(h);
+}
 
 // POST /api/wallet/deposit
 router.post("/deposit", async (req: Request, res: Response) => {
-  try {
-    const { wallet, amount, txSignature } = req.body;
-    const amountNum = parseFloat(amount);
+  const parsed = DepositSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid deposit payload", details: parsed.error.issues });
+    return;
+  }
+  const { wallet, amount: amountNum, txSignature } = parsed.data;
 
-    if (!wallet || !(amountNum > 0) || !txSignature) {
-      res.status(400).json({ error: "Missing wallet, amount, or txSignature" });
-      return;
-    }
+  try {
 
     // Short-circuit if signature already processed (fast path; UNIQUE index is the ultimate guard).
     const existing = await db.query.transactions.findFirst({
@@ -78,24 +100,31 @@ router.post("/deposit", async (req: Request, res: Response) => {
 
 // POST /api/wallet/withdraw
 // Flow:
-//   1. Atomic conditional debit + insert pending tx row.
-//   2. Send USDP on-chain.
-//   3. On success: mark tx confirmed + bump totalWithdrawals.
-//   4. On failure: refund balance + mark tx failed.
+//   1. Acquire Postgres advisory lock scoped to this wallet (survives server restart,
+//      works across multiple BE instances).
+//   2. Atomic conditional debit + insert pending tx row.
+//   3. Send USDP on-chain.
+//   4. On success: mark tx confirmed + bump totalWithdrawals.
+//   5. On failure: refund balance + mark tx failed.
 router.post("/withdraw", authMiddleware("WITHDRAW"), async (req: Request, res: Response) => {
-  const { wallet, amount } = req.body;
-  const amountNum = parseFloat(amount);
-
-  if (!wallet || !(amountNum > 0)) {
-    res.status(400).json({ error: "Invalid withdraw payload" });
+  const parsed = WithdrawSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid withdraw payload", details: parsed.error.issues });
     return;
   }
+  const { wallet, amount: amountNum } = parsed.data;
 
-  if (withdrawLocks.has(wallet)) {
+  const lockKey = walletLockKey(wallet);
+  // pg_try_advisory_lock returns true if lock acquired, false if already held.
+  // This serializes concurrent withdraws for the same wallet across all BE instances.
+  const lockResult = await db.execute(
+    sql`SELECT pg_try_advisory_lock(${lockKey}) AS locked`,
+  );
+  const locked = (lockResult as unknown as { rows: { locked: boolean }[] }).rows?.[0]?.locked;
+  if (!locked) {
     res.status(429).json({ error: "Withdrawal already in progress" });
     return;
   }
-  withdrawLocks.add(wallet);
 
   const txId = uuid();
   let debited = false;
@@ -180,7 +209,11 @@ router.post("/withdraw", authMiddleware("WITHDRAW"), async (req: Request, res: R
     }
     res.status(500).json({ error: "Withdrawal failed" });
   } finally {
-    withdrawLocks.delete(wallet);
+    try {
+      await db.execute(sql`SELECT pg_advisory_unlock(${lockKey})`);
+    } catch (unlockErr) {
+      console.error("[Withdraw] Failed to release advisory lock:", unlockErr);
+    }
   }
 });
 
