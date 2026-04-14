@@ -12,6 +12,7 @@
 |--------|---------|--------|
 | Listen WS `BADGE_UNLOCKED` → tampilin toast "🔥 First Win unlocked!" | `src/hooks/useMarkets.ts` atau global handler | [§Achievements system](#1-achievements--badges) |
 | Tampilin badge collection di profile page (grid icon locked/unlocked) | `src/app/profile/page.tsx` | [§Achievements system](#1-achievements--badges) |
+| Render hype meter sparkline di market card dari `/api/markets/:id/hype` | `src/components/MarketCard.tsx` (new component `HypeMeter`) | [§Hype meter](#2-hype-meter) |
 
 **Config changes:** none
 **Breaking changes:** none
@@ -103,5 +104,45 @@ Fired tiap user dapet badge baru (setelah market resolve):
   - Unlocked badges: colorful + "Unlocked {date}"
 - Optional: leaderboard / card badge — partner bebas.
 
-<!-- Append new commits above this line. On push, replace the header status with:
-     ✅ PUSHED: YYYY-MM-DD at commit {latest hash} — then stop editing this file. -->
+### Commit `efa1747` — 2026-04-15
+**Title:** feat: hype meter endpoint — vote ratio timeline per market
+
+**Files:**
+- `be/src/db/dal.ts`
+- `be/src/routes/markets.ts`
+
+#### 2. Hype Meter
+Polymarket-style hype meter: shows how crowd sentiment (yes vs no vote ratio) shifts through the market's lifetime.
+
+**Endpoint baru:** `GET /api/markets/:id/hype`
+
+**Response:**
+```ts
+{
+  marketId: "abc-123",
+  symbol: "BTC",
+  status: "active",
+  current: {
+    yesShare: 0.62,        // 0..1
+    noShare: 0.38,
+    yesPool: 125.4,        // $USDP
+    noPool: 76.8,
+    totalVoters: 18,
+  },
+  timeline: [
+    // Ascending-time points, one per vote
+    { t: 1776200000000, yesShare: 0.50, noShare: 0.50, yesPool: 5, noPool: 5, totalVotes: 2 },
+    { t: 1776200060000, yesShare: 0.66, noShare: 0.34, yesPool: 10, noPool: 5, totalVotes: 3 },
+    ...
+  ]
+}
+```
+
+**FE rendering suggestion:**
+- Horizontal bar under chart: `yesShare` = hijau, `noShare` = merah. Width proportional.
+- Label: "62% UP · 38% DOWN" atau similar.
+- Mini sparkline di samping bar (width ~60px, height ~20px): timeline `yesShare` point over time — biar user liat trend (stable? swung?).
+- Kalau `timeline.length === 0`, tampilin "Be the first to bet" state.
+- **No auto-refresh needed** — market card udah subscribe `NEW_VOTE` WS → pool amounts update → compute current share client-side. Call hype endpoint hanya buat initial timeline seed.
+
+**Library suggestion:** pakai `lightweight-charts` yang udah ada (tiny area chart, hide axes) atau custom SVG polyline untuk sparkline kecil.
