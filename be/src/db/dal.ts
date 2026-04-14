@@ -178,6 +178,51 @@ export const userRepo = {
   },
 
   /**
+   * Derived portfolio stats. Reads aggregated counters from users (fast),
+   * then pulls biggest-win / biggest-loss via simple aggregations on votes.
+   * Returns null if user has never voted.
+   */
+  async getPortfolioStats(wallet: string) {
+    const user = await db.query.users.findFirst({ where: eq(users.wallet, wallet) });
+    if (!user) return null;
+
+    // biggest_win = max(payout - amount) where status=won
+    // biggest_loss = max(amount) where status=lost
+    const aggRows = await db
+      .select({
+        biggestWin: sql<number>`COALESCE(MAX(CASE WHEN ${votes.status} = 'won'  THEN ${votes.payout} - ${votes.amount} END), 0)`,
+        biggestLoss: sql<number>`COALESCE(MAX(CASE WHEN ${votes.status} = 'lost' THEN ${votes.amount} END), 0)`,
+        pendingCount: sql<number>`COUNT(*) FILTER (WHERE ${votes.status} = 'pending')`,
+      })
+      .from(votes)
+      .where(eq(votes.userWallet, wallet));
+    const agg = aggRows[0];
+
+    const settled = user.wins + user.losses;
+    const winRate = settled > 0 ? user.wins / settled : 0;
+    const roi = user.totalWagered > 0 ? user.totalPnl / user.totalWagered : 0;
+    const avgBet = user.totalVotes > 0 ? user.totalWagered / user.totalVotes : 0;
+
+    return {
+      wallet: user.wallet,
+      balance: user.balance,
+      totalVotes: user.totalVotes,
+      wins: user.wins,
+      losses: user.losses,
+      pending: Number(agg?.pendingCount ?? 0),
+      winRate,
+      totalWagered: user.totalWagered,
+      totalPnl: user.totalPnl,
+      roi,
+      avgBet,
+      biggestWin: Number(agg?.biggestWin ?? 0),
+      biggestLoss: Number(agg?.biggestLoss ?? 0),
+      totalDeposits: user.totalDeposits,
+      totalWithdrawals: user.totalWithdrawals,
+    };
+  },
+
+  /**
    * Atomic balance debit. Returns true if debit succeeded (user had sufficient balance).
    * Uses conditional UPDATE to prevent TOCTOU race where two concurrent votes both pass the check.
    */

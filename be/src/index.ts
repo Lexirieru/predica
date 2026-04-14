@@ -9,6 +9,7 @@ import pricesRouter from "./routes/prices";
 import leaderboardRouter from "./routes/leaderboard";
 import sentimentRouter from "./routes/sentiment";
 import walletRouter from "./routes/wallet";
+import portfolioRouter from "./routes/portfolio";
 import { startSettlementCron, startPriceStream, startMarketGeneratorCron } from "./lib/crons";
 import { initWebSocketServer } from "./lib/websocket";
 import "./db/migrate"; // Run auto-migration
@@ -71,6 +72,7 @@ app.use("/api/prices", pricesRouter);
 app.use("/api/leaderboard", leaderboardRouter);
 app.use("/api/sentiment", sentimentRouter);
 app.use("/api/wallet", walletRouter);
+app.use("/api/portfolio", portfolioRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
