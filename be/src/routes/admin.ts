@@ -29,50 +29,44 @@ function requireAdmin(req: Request, res: Response, next: NextFunction) {
 // dashboards / curl checks by operators.
 router.get("/health", requireAdmin, async (_req: Request, res: Response) => {
   try {
-    const [
-      activeMarketRows,
-      upcomingMarketRows,
-      settledTodayRows,
-      totalVotesRows,
-      totalUsersRows,
-      totalAchievementsRows,
-      candleRowsRows,
-      distinctCandleSymbolsRows,
-    ] = await Promise.all([
-      db.execute(sql`SELECT COUNT(*)::int AS n FROM ${markets} WHERE status = 'active'`),
-      db.execute(sql`SELECT COUNT(*)::int AS n FROM ${markets} WHERE status = 'upcoming'`),
-      db.execute(sql`SELECT COUNT(*)::int AS n FROM ${markets} WHERE status = 'settled' AND updated_at > ${Date.now() - 24*60*60*1000}`),
-      db.execute(sql`SELECT COUNT(*)::int AS n FROM ${votes}`),
-      db.execute(sql`SELECT COUNT(*)::int AS n FROM ${users}`),
-      db.execute(sql`SELECT COUNT(*)::int AS n FROM ${achievements}`),
-      db.execute(sql`SELECT COUNT(*)::int AS n FROM ${candleSnapshots}`),
-      db.execute(sql`SELECT COUNT(DISTINCT symbol)::int AS n FROM ${candleSnapshots}`),
-    ]);
+    // Single aggregation query keeps us to one pool connection — admin health
+    // gets hit during incidents when the pool is already stressed, so batching
+    // 8 COUNTs into one round-trip beats 8 parallel connections.
+    const dayAgo = Date.now() - 24 * 60 * 60 * 1000;
+    const aggRows = await db.execute(sql`
+      SELECT
+        (SELECT COUNT(*)::int FROM ${markets} WHERE status = 'active')                    AS active_markets,
+        (SELECT COUNT(*)::int FROM ${markets} WHERE status = 'upcoming')                  AS upcoming_markets,
+        (SELECT COUNT(*)::int FROM ${markets} WHERE status = 'settled' AND updated_at > ${dayAgo}) AS settled_last_24h,
+        (SELECT COUNT(*)::int FROM ${votes})                                              AS total_votes,
+        (SELECT COUNT(*)::int FROM ${users})                                              AS total_users,
+        (SELECT COUNT(*)::int FROM ${achievements})                                       AS total_achievements,
+        (SELECT COUNT(*)::int FROM ${candleSnapshots})                                    AS candle_rows,
+        (SELECT COUNT(DISTINCT symbol)::int FROM ${candleSnapshots})                      AS candle_symbols
+    `);
 
-    const num = (r: unknown) => {
-      const rows = (r as { rows?: Array<{ n: number }> }).rows ?? [];
-      return Number(rows[0]?.n ?? 0);
-    };
+    const row = (aggRows as { rows?: Array<Record<string, number>> }).rows?.[0] ?? {};
+    const num = (key: string) => Number(row[key] ?? 0);
 
     res.json({
       ok: true,
       timestamp: Date.now(),
       uptime_ms: Math.floor(process.uptime() * 1000),
       markets: {
-        active: num(activeMarketRows),
-        upcoming: num(upcomingMarketRows),
-        settled_last_24h: num(settledTodayRows),
+        active: num("active_markets"),
+        upcoming: num("upcoming_markets"),
+        settled_last_24h: num("settled_last_24h"),
       },
       users: {
-        total: num(totalUsersRows),
-        total_votes: num(totalVotesRows),
+        total: num("total_users"),
+        total_votes: num("total_votes"),
       },
       achievements: {
-        total_unlocked: num(totalAchievementsRows),
+        total_unlocked: num("total_achievements"),
       },
       candles: {
-        rows: num(candleRowsRows),
-        symbols_tracked: num(distinctCandleSymbolsRows),
+        rows: num("candle_rows"),
+        symbols_tracked: num("candle_symbols"),
       },
       elfa: {
         tracked_symbols: Array.from(getTrackedSet()).sort(),
