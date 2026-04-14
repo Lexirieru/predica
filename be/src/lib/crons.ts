@@ -480,12 +480,24 @@ export function startMarketActivatorCron() {
 
       for (const m of due) {
         const mark = prices[m.symbol.toUpperCase()];
-        if (!mark || mark <= 0) continue;
+        const openedAt = Number(m.deadline) - SLOT_MS;
+        const stale = Date.now() - openedAt > 60_000;
+
+        if (!mark || mark <= 0) {
+          if (stale) {
+            console.warn(
+              `[Activator] ${m.symbol} stuck upcoming — no mark price for ${Math.round((Date.now() - openedAt) / 1000)}s past open (market id ${m.id})`,
+            );
+          }
+          continue;
+        }
 
         const ok = await marketRepo.activate(m.id, mark);
         if (ok) {
           broadcast("NEW_MARKET", { ...m, status: "active", targetPrice: mark, currentPrice: mark });
           console.log(`[Activator] ${m.symbol} active @ ${mark} (deadline ${new Date(Number(m.deadline)).toISOString()})`);
+        } else if (stale) {
+          console.warn(`[Activator] ${m.symbol} activate() returned false while stale — likely settled by another worker or deleted`);
         }
       }
     } catch (err) {

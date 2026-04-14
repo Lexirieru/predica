@@ -144,7 +144,12 @@ function connect() {
         };
         for (const h of candleHandlers) h(tick);
       }
-    } catch {}
+    } catch (e) {
+      // Don't let a malformed frame kill the handler — but surface it so
+      // Pacifica schema changes don't pass silently.
+      const preview = raw.toString().slice(0, 200);
+      console.warn("[PacificaWS] parse error:", (e as Error).message, "| frame:", preview);
+    }
   });
 
   ws.on("close", () => {

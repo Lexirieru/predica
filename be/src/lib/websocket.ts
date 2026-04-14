@@ -27,14 +27,14 @@ export function initWebSocketServer(server: HttpServer) {
     console.log("[WebSocket] New client connected");
 
     ws.on("message", (message) => {
-      // Handle heartbeats or client messages if needed
       try {
         const data = JSON.parse(message.toString());
         if (data.type === "PING") {
           ws.send(JSON.stringify({ type: "PONG", timestamp: Date.now() }));
         }
       } catch (e) {
-        // Silent
+        const preview = message.toString().slice(0, 120);
+        console.warn("[WebSocket] client message parse error:", (e as Error).message, "| frame:", preview);
       }
     });
 

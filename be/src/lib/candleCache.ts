@@ -12,6 +12,9 @@ export const CANDLE_RETENTION_DAYS = 2;
 const cache = new Map<string, CandleTick[]>();
 // symbol → last ms we persisted a candle with this openTime
 const lastPersist = new Map<string, number>();
+// symbol → true if an upsert is currently in-flight. Guards against overlapping
+// writes when the throttle window expires mid-DB-round-trip.
+const inflight = new Map<string, boolean>();
 
 function bufKey(symbol: string): string {
   return symbol.toUpperCase();
@@ -38,14 +41,23 @@ export function pushCandle(tick: CandleTick) {
   cache.set(sym, buf);
 
   // Persist: always on new-candle boundary, throttled for in-progress updates.
+  // The inflight guard prevents a second write from racing ahead of the first —
+  // without it, a slow DB round-trip combined with a crossed throttle window
+  // could produce out-of-order updates.
   const now = Date.now();
   const lastWrite = lastPersist.get(sym) ?? 0;
-  if (isNewCandle || now - lastWrite >= PERSIST_THROTTLE_MS) {
+  const shouldPersist = isNewCandle || now - lastWrite >= PERSIST_THROTTLE_MS;
+  if (shouldPersist && !inflight.get(sym)) {
+    inflight.set(sym, true);
     lastPersist.set(sym, now);
-    persistCandle(sym, tick).catch((err) => {
-      const e = err as any;
-      console.warn(`[CandleCache] persist failed for ${sym}: ${e?.cause?.message ?? e?.code ?? e?.message}`);
-    });
+    persistCandle(sym, tick)
+      .catch((err) => {
+        const e = err as any;
+        console.warn(`[CandleCache] persist failed for ${sym}: ${e?.cause?.message ?? e?.code ?? e?.message}`);
+      })
+      .finally(() => {
+        inflight.set(sym, false);
+      });
   }
 }
 
