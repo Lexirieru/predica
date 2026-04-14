@@ -16,6 +16,7 @@ import {
   type CandleTick,
 } from "./pacificaWs";
 import { pushCandle, pruneOldCandles, warmCacheFromDb, CANDLE_RETENTION_DAYS } from "./candleCache";
+import { isElfaTracked, warmElfaValidity } from "./elfaValidator";
 
 let isSettling = false;
 
@@ -246,6 +247,19 @@ export function startCandleCleanupCron() {
 }
 
 /**
+ * On boot, probe each curated symbol against Elfa to populate the validity
+ * cache. Without this the first generator run would block on N sequential
+ * Elfa calls; warming in parallel chunks up-front keeps startup fast.
+ */
+export async function warmElfaValidityCache() {
+  try {
+    await warmElfaValidity(CURATED_SYMBOLS);
+  } catch (err) {
+    console.error("[ElfaValidity] Warm failed:", err);
+  }
+}
+
+/**
  * On boot, rehydrate the in-memory candle buffers from DB so the chart
  * endpoint doesn't return empty arrays while waiting for the first WS tick.
  * Only warms active-market symbols — everything else loads on demand.
@@ -372,18 +386,38 @@ async function ensureUpcomingBuckets() {
       for (const p of priceRes.data) prices[p.symbol.toUpperCase()] = p;
     }
 
-    // Symbol set: curated (always) + top trending that's listed on Pacifica.
-    const activeSymbols = new Set(CURATED_SYMBOLS.filter((s) => pacificaSymbols.has(s)));
+    // Symbol set must satisfy BOTH:
+    //   1. Listed on Pacifica (tradeable)
+    //   2. Elfa has ticker-level mention data (so sentiment bar / activity feed
+    //      actually has signal — NVDA/TSLA/GOOGL fail this check)
+    //
+    // Trending tokens from Elfa are also filtered by isElfaTracked because
+    // Elfa's trending aggregator includes stocks that lack per-ticker data.
+    const candidateSet = new Set<string>();
+    for (const s of CURATED_SYMBOLS) {
+      if (pacificaSymbols.has(s)) candidateSet.add(s);
+    }
     try {
       const trending = await elfa.getTrendingTokens("24h");
       const tokens = trending?.data?.data || [];
       for (const t of tokens.slice(0, TRENDING_SCAN_LIMIT)) {
         const s = t.token.toUpperCase();
-        if (activeSymbols.size >= CURATED_SYMBOLS.length + TRENDING_PER_BATCH) break;
-        if (pacificaSymbols.has(s)) activeSymbols.add(s);
+        if (pacificaSymbols.has(s)) candidateSet.add(s);
       }
     } catch {
-      // Elfa unavailable — curated list alone is still plenty.
+      // Elfa unavailable — candidates are curated-only; still validate each below.
+    }
+
+    const activeSymbols = new Set<string>();
+    await Promise.all(
+      Array.from(candidateSet).map(async (s) => {
+        if (await isElfaTracked(s)) activeSymbols.add(s);
+      }),
+    );
+
+    if (activeSymbols.size === 0) {
+      console.warn("[Buckets] No symbols passed Pacifica ∩ Elfa-tracked filter. Skipping batch.");
+      return;
     }
 
     // Slot schedule: next boundary .. now + HORIZON_MIN.

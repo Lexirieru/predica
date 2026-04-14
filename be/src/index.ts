@@ -17,6 +17,7 @@ import {
   startMarketActivatorCron,
   startCandleCleanupCron,
   warmCandleCache,
+  warmElfaValidityCache,
 } from "./lib/crons";
 import { initWebSocketServer } from "./lib/websocket";
 import "./db/migrate"; // Run auto-migration
@@ -89,7 +90,7 @@ app.get("/api/health", (_req, res) => {
 // Start cron jobs
 startSettlementCron();
 startPriceStream();
-startMarketGeneratorCron();
+warmElfaValidityCache().then(() => startMarketGeneratorCron());
 startMarketActivatorCron();
 startCandleCleanupCron();
 warmCandleCache();
