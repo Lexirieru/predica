@@ -73,20 +73,18 @@ export function startSettlementCron() {
         const totalPool = market.yesPool + market.noPool;
 
         try {
+          // `committed` tells us the tx actually flipped the row (won the race)
+          // vs silently skipped (another worker beat us). We broadcast AFTER the
+          // tx fully commits so we never send MARKET_RESOLVED for a rolled-back
+          // settlement — which would leave the FE out of sync with DB state.
+          let committed = false;
           await db.transaction(async (tx) => {
-            // Conditional transition active → settled. If another process/instance
-            // already settled this market, we bail out without touching payouts.
             const won = await marketRepo.resolve(market.id, resolution as "yes" | "no", tx);
             if (!won) {
               console.log(`[Settlement] ${symbol} already settled by another worker — skip.`);
               return;
             }
-
-            broadcast("MARKET_RESOLVED", {
-              marketId: market.id,
-              resolution,
-              price: markPrice
-            });
+            committed = true;
 
             if (marketVotes.length > 0) {
               const winningSide = resolution;
@@ -136,7 +134,15 @@ export function startSettlementCron() {
               }
             }
           });
-          console.log(`[Settlement] SUCCESS: ${symbol} Resolved as ${resolution.toUpperCase()}`);
+
+          if (committed) {
+            broadcast("MARKET_RESOLVED", {
+              marketId: market.id,
+              resolution,
+              price: markPrice,
+            });
+            console.log(`[Settlement] SUCCESS: ${symbol} Resolved as ${resolution.toUpperCase()}`);
+          }
         } catch (txErr) {
           console.error(`[Settlement] Transaction failed for ${market.id}:`, txErr);
         }
