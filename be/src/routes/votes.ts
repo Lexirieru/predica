@@ -1,75 +1,69 @@
 import { Router, Request, Response } from "express";
-import { createVote, getVotesByUser } from "../db/votes";
-import { getMarketById } from "../db/markets";
-import { getDb } from "../db/schema";
+import { marketRepo, voteRepo, userRepo } from "../db/dal";
+import { db } from "../db";
+import { users } from "../db/schema";
+import { eq } from "drizzle-orm";
+import { broadcast } from "../lib/websocket";
+import { authMiddleware } from "../lib/middleware";
 
 const router = Router();
 
-// POST /api/vote — deduct from internal balance, add to pool
-router.post("/", (req: Request, res: Response) => {
+// POST /api/vote — atomic: debit balance, insert vote, update pool, upsert user stats
+router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => {
   try {
     const { marketId, userWallet, side, amount } = req.body;
+    const amountNum = parseFloat(amount);
 
-    if (!marketId || !userWallet || !side || !amount) {
-      res.status(400).json({ error: "Missing required fields" });
+    if (!marketId || !userWallet || !side || !(amountNum > 0)) {
+      res.status(400).json({ error: "Invalid vote payload" });
       return;
     }
-
     if (side !== "yes" && side !== "no") {
       res.status(400).json({ error: "side must be 'yes' or 'no'" });
       return;
     }
 
-    const amountNum = parseFloat(amount);
-    if (amountNum <= 0) {
-      res.status(400).json({ error: "Amount must be positive" });
+    const market = await marketRepo.getById(marketId);
+    if (!market || market.status !== "active") {
+      res.status(400).json({ error: "Market not found or not active" });
+      return;
+    }
+    if (market.deadline <= Date.now()) {
+      res.status(400).json({ error: "Market already expired" });
       return;
     }
 
-    const market = getMarketById(marketId);
-    if (!market) {
-      res.status(404).json({ error: "Market not found" });
-      return;
+    // Atomic section: debit + vote + pool + user stats commit together.
+    // If debit fails (insufficient balance), the whole transaction aborts.
+    let vote;
+    try {
+      vote = await db.transaction(async (tx) => {
+        const debited = await userRepo.tryDebit(tx, userWallet, amountNum);
+        if (!debited) throw new Error("INSUFFICIENT_BALANCE");
+        return await voteRepo.create(tx, { marketId, userWallet, side, amount: amountNum });
+      });
+    } catch (err: any) {
+      if (err?.message === "INSUFFICIENT_BALANCE") {
+        res.status(400).json({ error: "Insufficient balance" });
+        return;
+      }
+      throw err;
     }
 
-    if (market.status !== "active") {
-      res.status(400).json({ error: "Market is not active" });
-      return;
-    }
+    broadcast("NEW_VOTE", { marketId, side, amount: amountNum, wallet: userWallet });
 
-    if (market.deadline < Date.now()) {
-      res.status(400).json({ error: "Market has expired" });
-      return;
-    }
-
-    // Check internal balance
-    const db = getDb();
-    const user = db.prepare("SELECT balance FROM users WHERE wallet = ?").get(userWallet) as { balance: number } | undefined;
-
-    if (!user || user.balance < amountNum) {
-      res.status(400).json({ error: `Insufficient balance. You have $${(user?.balance || 0).toFixed(2)} USDP. Deposit more first.` });
-      return;
-    }
-
-    // Deduct balance
-    db.prepare("UPDATE users SET balance = balance - ? WHERE wallet = ?").run(amountNum, userWallet);
-
-    // Create vote (adds to pool + user stats)
-    const vote = createVote({ marketId, userWallet, side, amount: amountNum });
-
-    const updated = db.prepare("SELECT balance FROM users WHERE wallet = ?").get(userWallet) as { balance: number };
-
-    res.status(201).json({ ...vote, balance: updated.balance });
+    const updated = await db.query.users.findFirst({ where: eq(users.wallet, userWallet) });
+    res.status(201).json({ ...vote, balance: updated?.balance ?? 0 });
   } catch (err) {
     console.error("[Vote] Error:", err);
-    res.status(500).json({ error: String(err) });
+    res.status(500).json({ error: "Vote failed" });
   }
 });
 
 // GET /api/vote/user/:wallet
-router.get("/user/:wallet", (req: Request, res: Response) => {
+router.get("/user/:wallet", async (req: Request, res: Response) => {
   try {
-    res.json(getVotesByUser(req.params.wallet));
+    res.json(await voteRepo.getByUser(req.params.wallet));
   } catch {
     res.status(500).json({ error: "Failed to fetch votes" });
   }

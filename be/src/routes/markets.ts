@@ -1,6 +1,5 @@
 import { Router, Request, Response } from "express";
-import { getActiveMarkets, getAllMarkets, getMarketById, createMarket } from "../db/markets";
-import { getVotesByMarket } from "../db/votes";
+import { marketRepo, voteRepo } from "../db/dal";
 import * as pacifica from "../lib/pacifica";
 
 const router = Router();
@@ -8,17 +7,18 @@ const router = Router();
 // GET /api/markets — active markets with live prices
 router.get("/", async (_req: Request, res: Response) => {
   try {
-    const markets = getActiveMarkets();
+    const markets = await marketRepo.getActive();
 
     // Try to enrich with live Pacifica prices
     try {
       const priceData = await pacifica.getPrices();
-      if (priceData && typeof priceData === "object") {
-        for (const m of markets) {
-          const symbolPrices = priceData[m.symbol];
-          if (symbolPrices?.mark_price) {
-            m.current_price = parseFloat(symbolPrices.mark_price);
-          }
+      console.log(priceData?.data);
+      if (priceData?.data && Array.isArray(priceData.data)) {
+        for (const m of markets as any) {
+          const p = priceData.data.find(
+            (d: any) => d.symbol.toUpperCase() === m.symbol.toUpperCase(),
+          );
+          if (p?.mark) m.currentPrice = parseFloat(p.mark);
         }
       }
     } catch {
@@ -27,28 +27,29 @@ router.get("/", async (_req: Request, res: Response) => {
 
     res.json(markets);
   } catch (err) {
+    console.error("[Markets] Error:", err);
     res.status(500).json({ error: "Failed to fetch markets" });
   }
 });
 
 // GET /api/markets/all — all markets including resolved
-router.get("/all", (_req: Request, res: Response) => {
+router.get("/all", async (_req: Request, res: Response) => {
   try {
-    res.json(getAllMarkets());
+    res.json(await getAllMarkets());
   } catch {
     res.status(500).json({ error: "Failed to fetch markets" });
   }
 });
 
 // GET /api/markets/:id
-router.get("/:id", (req: Request, res: Response) => {
+router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const market = getMarketById(req.params.id);
+    const market = await marketRepo.getById(req.params.id);
     if (!market) {
       res.status(404).json({ error: "Market not found" });
       return;
     }
-    const votes = getVotesByMarket(req.params.id);
+    const votes = await voteRepo.getByMarket(req.params.id);
     res.json({ ...market, votes });
   } catch {
     res.status(500).json({ error: "Failed to fetch market" });
@@ -56,25 +57,9 @@ router.get("/:id", (req: Request, res: Response) => {
 });
 
 // POST /api/markets — create a new prediction market
-router.post("/", (req: Request, res: Response) => {
+router.post("/", async (req: Request, res: Response) => {
   try {
-    const { symbol, question, targetPrice, currentPrice, deadline, category, sentiment } = req.body;
-
-    if (!symbol || !question || !targetPrice || !deadline) {
-      res.status(400).json({ error: "Missing required fields: symbol, question, targetPrice, deadline" });
-      return;
-    }
-
-    const market = createMarket({
-      symbol,
-      question,
-      targetPrice,
-      currentPrice: currentPrice || 0,
-      deadline,
-      category: category || "crypto",
-      sentiment,
-    });
-
+    const market = await marketRepo.create(req.body);
     res.status(201).json(market);
   } catch {
     res.status(500).json({ error: "Failed to create market" });

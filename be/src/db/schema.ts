@@ -1,5 +1,7 @@
-import { pgTable, text, real, integer, index } from "drizzle-orm/pg-core";
+import { pgTable, text, real, integer, bigint, index, uniqueIndex } from "drizzle-orm/pg-core";
 import { sql } from "drizzle-orm";
+
+const tsDefault = sql`(extract(epoch from now()) * 1000)::bigint`;
 
 export const markets = pgTable("markets", {
   id: text("id").primaryKey(),
@@ -7,7 +9,7 @@ export const markets = pgTable("markets", {
   question: text("question").notNull(),
   targetPrice: real("target_price").notNull(),
   currentPrice: real("current_price").notNull().default(0),
-  deadline: integer("deadline").notNull(),
+  deadline: bigint("deadline", { mode: "number" }).notNull(),
   category: text("category").notNull().default("crypto"),
   yesPool: real("yes_pool").notNull().default(0),
   noPool: real("no_pool").notNull().default(0),
@@ -15,12 +17,11 @@ export const markets = pgTable("markets", {
   sentiment: real("sentiment").notNull().default(50),
   status: text("status", { enum: ["active", "expired", "settled"] }).notNull().default("active"),
   resolution: text("resolution", { enum: ["yes", "no"] }),
-  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
-  updatedAt: integer("updated_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+  createdAt: bigint("created_at", { mode: "number" }).notNull().default(tsDefault),
+  updatedAt: bigint("updated_at", { mode: "number" }).notNull().default(tsDefault),
 }, (table) => {
   return {
-    statusIdx: index("idx_markets_status").on(table.status),
-    deadlineIdx: index("idx_markets_deadline").on(table.deadline),
+    statusDeadlineIdx: index("idx_markets_status_deadline").on(table.status, table.deadline),
   }
 });
 
@@ -33,7 +34,7 @@ export const votes = pgTable("votes", {
   payout: real("payout").notNull().default(0),
   orderId: text("order_id"),
   status: text("status", { enum: ["pending", "won", "lost"] }).notNull().default("pending"),
-  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+  createdAt: bigint("created_at", { mode: "number" }).notNull().default(tsDefault),
 }, (table) => {
   return {
     marketIdx: index("idx_votes_market").on(table.marketId),
@@ -51,7 +52,7 @@ export const users = pgTable("users", {
   losses: integer("losses").notNull().default(0),
   totalWagered: real("total_wagered").notNull().default(0),
   totalPnl: real("total_pnl").notNull().default(0),
-  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+  createdAt: bigint("created_at", { mode: "number" }).notNull().default(tsDefault),
 });
 
 export const transactions = pgTable("transactions", {
@@ -62,9 +63,10 @@ export const transactions = pgTable("transactions", {
   txSignature: text("tx_signature"),
   metadata: text("metadata"),
   status: text("status", { enum: ["pending", "confirmed", "failed"] }).notNull().default("pending"),
-  createdAt: integer("created_at").notNull().default(sql`(extract(epoch from now()) * 1000)::bigint`),
+  createdAt: bigint("created_at", { mode: "number" }).notNull().default(tsDefault),
 }, (table) => {
   return {
     walletIdx: index("idx_tx_wallet").on(table.wallet),
+    txSigIdx: uniqueIndex("uq_tx_signature").on(table.txSignature),
   }
 });

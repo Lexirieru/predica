@@ -2,23 +2,22 @@ import { PredictionMarket, TradeSide } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
-// Map backend snake_case to frontend camelCase
-function mapMarket(raw: Record<string, unknown>): PredictionMarket {
+function mapMarket(raw: any): PredictionMarket {
   return {
-    id: raw.id as string,
-    symbol: raw.symbol as string,
-    question: raw.question as string,
-    targetPrice: raw.target_price as number,
-    currentPrice: raw.current_price as number,
-    deadline: raw.deadline as number,
-    category: (raw.category as PredictionMarket["category"]) || "crypto",
-    yesPool: raw.yes_pool as number,
-    noPool: raw.no_pool as number,
-    totalVoters: raw.total_voters as number,
-    sentiment: raw.sentiment as number,
+    id: raw.id,
+    symbol: raw.symbol,
+    question: raw.question,
+    targetPrice: Number(raw.targetPrice || raw.target_price || 0),
+    currentPrice: Number(raw.currentPrice || raw.current_price || 0),
+    deadline: Number(raw.deadline || 0),
+    category: raw.category || "crypto",
+    yesPool: Number(raw.yesPool || raw.yes_pool || 0),
+    noPool: Number(raw.noPool || raw.no_pool || 0),
+    totalVoters: Number(raw.totalVoters || raw.total_voters || 0),
+    sentiment: Number(raw.sentiment || 50),
     priceHistory: [], // will be filled by kline data
-    status: raw.status as PredictionMarket["status"],
-    resolution: raw.resolution as PredictionMarket["resolution"],
+    status: raw.status || "active",
+    resolution: raw.resolution,
   };
 }
 

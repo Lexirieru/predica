@@ -1,7 +1,9 @@
 import { db } from "./index";
 import { markets, votes, users } from "./schema";
-import { eq, asc, desc, sql } from "drizzle-orm";
+import { eq, asc, desc, sql, and, gte } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
+
+type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
 
 /**
  * --- MARKET DATA ACCESS ---
@@ -14,74 +16,108 @@ export const marketRepo = {
       orderBy: [asc(markets.deadline)],
     });
   },
-
   async getById(id: string) {
     return await db.query.markets.findFirst({ where: eq(markets.id, id) });
   },
 
   async create(data: any) {
-    const [newMarket] = await db.insert(markets).values({
-      id: uuid(),
-      ...data,
-      sentiment: data.sentiment ?? 50,
-      createdAt: Date.now(),
-      updatedAt: Date.now(),
-    }).returning();
+    const [newMarket] = await db
+      .insert(markets)
+      .values({
+        id: uuid(),
+        ...data,
+        sentiment: data.sentiment ?? 50,
+        createdAt: Date.now(),
+        updatedAt: Date.now(),
+      })
+      .returning();
     return newMarket;
   },
 
   async updatePrice(id: string, price: number) {
-    await db.update(markets).set({ currentPrice: price, updatedAt: Date.now() }).where(eq(markets.id, id));
+    await db
+      .update(markets)
+      .set({ currentPrice: price, updatedAt: Date.now() })
+      .where(eq(markets.id, id));
   },
 
-  async resolve(id: string, resolution: "yes" | "no") {
-    await db.update(markets).set({ status: "settled", resolution, updatedAt: Date.now() }).where(eq(markets.id, id));
+  async resolve(id: string, resolution: "yes" | "no", exec: Executor = db) {
+    await exec
+      .update(markets)
+      .set({ status: "settled", resolution, updatedAt: Date.now() })
+      .where(eq(markets.id, id));
   },
 
-  async addToPool(id: string, side: "yes" | "no", amount: number) {
+  async addToPool(
+    id: string,
+    side: "yes" | "no",
+    amount: number,
+    exec: Executor = db,
+  ) {
     const field = side === "yes" ? markets.yesPool : markets.noPool;
-    await db.update(markets)
-      .set({ 
+    await exec
+      .update(markets)
+      .set({
         [side === "yes" ? "yesPool" : "noPool"]: sql`${field} + ${amount}`,
         totalVoters: sql`${markets.totalVoters} + 1`,
-        updatedAt: Date.now() 
+        updatedAt: Date.now(),
       })
       .where(eq(markets.id, id));
-  }
+  },
 };
 
 /**
  * --- VOTE & USER DATA ACCESS ---
+ *
+ * IMPORTANT: create() requires an active transaction executor (tx) from the caller.
+ * This guarantees balance-debit, vote-insert, pool-update, and user-upsert commit atomically.
  */
 
 export const voteRepo = {
-  async create(data: { marketId: string; userWallet: string; side: "yes" | "no"; amount: number; orderId?: string }) {
+  async create(
+    tx: Executor,
+    data: {
+      marketId: string;
+      userWallet: string;
+      side: "yes" | "no";
+      amount: number;
+      orderId?: string;
+    },
+  ) {
     const id = uuid();
-    await db.transaction(async (tx) => {
-      await tx.insert(votes).values({ id, ...data });
-      await marketRepo.addToPool(data.marketId, data.side, data.amount);
-      await tx.insert(users).values({
+    await tx.insert(votes).values({ id, ...data });
+    await marketRepo.addToPool(data.marketId, data.side, data.amount, tx);
+    await tx
+      .insert(users)
+      .values({
         wallet: data.userWallet,
         totalVotes: 1,
         totalWagered: data.amount,
-      }).onConflictDoUpdate({
+      })
+      .onConflictDoUpdate({
         target: users.wallet,
         set: {
           totalVotes: sql`${users.totalVotes} + 1`,
           totalWagered: sql`${users.totalWagered} + ${data.amount}`,
         },
       });
-    });
-    return await db.query.votes.findFirst({ where: eq(votes.id, id) });
+    const row = await tx.query.votes.findFirst({ where: eq(votes.id, id) });
+    return row;
   },
 
   async getByMarket(marketId: string) {
-    return await db.query.votes.findMany({ where: eq(votes.marketId, marketId), orderBy: [desc(votes.createdAt)] });
+    return await db.query.votes.findMany({
+      where: eq(votes.marketId, marketId),
+      orderBy: [desc(votes.createdAt)],
+    });
   },
 
   async getByUser(wallet: string) {
-    return await db.query.votes.findMany({ where: eq(votes.userWallet, wallet), orderBy: [desc(votes.createdAt)] });
-  }
+    return await db.query.votes.findMany({
+      where: eq(votes.userWallet, wallet),
+      orderBy: [desc(votes.createdAt)],
+    });
+  },
 };
 
 /**
@@ -90,10 +126,30 @@ export const voteRepo = {
 
 export const userRepo = {
   async getLeaderboard(limit: number = 20) {
-    return await db.query.users.findMany({ orderBy: [desc(users.wins), desc(users.totalPnl)], limit });
+    return await db.query.users.findMany({
+      orderBy: [desc(users.wins), desc(users.totalPnl)],
+      limit,
+    });
   },
-  
+
   async getByWallet(wallet: string) {
     return await db.query.users.findFirst({ where: eq(users.wallet, wallet) });
-  }
+  },
+
+  /**
+   * Atomic balance debit. Returns true if debit succeeded (user had sufficient balance).
+   * Uses conditional UPDATE to prevent TOCTOU race where two concurrent votes both pass the check.
+   */
+  async tryDebit(
+    tx: Executor,
+    wallet: string,
+    amount: number,
+  ): Promise<boolean> {
+    const result = await tx
+      .update(users)
+      .set({ balance: sql`${users.balance} - ${amount}` })
+      .where(and(eq(users.wallet, wallet), gte(users.balance, amount)))
+      .returning({ wallet: users.wallet });
+    return result.length > 0;
+  },
 };

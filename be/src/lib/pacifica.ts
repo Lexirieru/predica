@@ -1,7 +1,8 @@
 import nacl from "tweetnacl";
 import bs58 from "bs58";
 
-const BASE_URL = process.env.PACIFICA_API_URL || "https://test-api.pacifica.fi/api/v1";
+const BASE_URL =
+  process.env.PACIFICA_API_URL || "https://test-api.pacifica.fi/api/v1";
 
 // --- Public endpoints (no auth) ---
 
@@ -27,10 +28,10 @@ export async function getKline(
   symbol: string,
   interval: string,
   startTime: number,
-  endTime: number
+  endTime: number,
 ) {
   const res = await fetch(
-    `${BASE_URL}/kline?symbol=${symbol}&interval=${interval}&start_time=${startTime}&end_time=${endTime}`
+    `${BASE_URL}/kline?symbol=${symbol}&interval=${interval}&start_time=${startTime}&end_time=${endTime}`,
   );
   if (!res.ok) throw new Error(`Pacifica /kline failed: ${res.status}`);
   return res.json();
@@ -44,7 +45,8 @@ export async function getTrades(symbol: string) {
 
 export async function getFundingHistory(symbol: string) {
   const res = await fetch(`${BASE_URL}/funding_rate/history?symbol=${symbol}`);
-  if (!res.ok) throw new Error(`Pacifica /funding_rate/history failed: ${res.status}`);
+  if (!res.ok)
+    throw new Error(`Pacifica /funding_rate/history failed: ${res.status}`);
   return res.json();
 }
 
@@ -87,7 +89,7 @@ export async function createMarketOrder(
   side: "bid" | "ask",
   slippagePercent: string = "0.5",
   reduceOnly: boolean = false,
-  clientOrderId: string
+  clientOrderId: string,
 ) {
   const privateKey = process.env.SOLANA_PRIVATE_KEY;
   if (!privateKey) throw new Error("SOLANA_PRIVATE_KEY not set");
@@ -135,7 +137,9 @@ export async function createMarketOrder(
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Pacifica create_market_order failed: ${res.status} — ${err}`);
+    throw new Error(
+      `Pacifica create_market_order failed: ${res.status} — ${err}`,
+    );
   }
   return res.json();
 }
@@ -157,12 +161,14 @@ export async function getPositions() {
   const signature = signPayload(sigPayload, privateKey);
 
   const res = await fetch(
-    `${BASE_URL}/account/positions?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`
+    `${BASE_URL}/account/positions?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`,
   );
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Pacifica /account/positions failed: ${res.status} — ${err}`);
+    throw new Error(
+      `Pacifica /account/positions failed: ${res.status} — ${err}`,
+    );
   }
   return res.json();
 }
@@ -184,7 +190,7 @@ export async function getAccountInfo() {
   const signature = signPayload(sigPayload, privateKey);
 
   const res = await fetch(
-    `${BASE_URL}/account/info?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`
+    `${BASE_URL}/account/info?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`,
   );
 
   if (!res.ok) {
@@ -199,7 +205,7 @@ export async function closePosition(
   symbol: string,
   amount: string,
   side: "bid" | "ask", // opposite of the original position
-  clientOrderId: string
+  clientOrderId: string,
 ) {
   return createMarketOrder(symbol, amount, side, "1.0", true, clientOrderId);
 }

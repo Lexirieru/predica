@@ -16,7 +16,8 @@ export function useMarkets() {
   // Sync local state to store
   const setMarkets = useCallback((m: PredictionMarket[]) => {
     setMarketsLocal(m);
-    setStoreMarkets(m);
+    // Use setTimeout to avoid "Cannot update a component while rendering another component"
+    setTimeout(() => setStoreMarkets(m), 0);
   }, [setStoreMarkets]);
 
   const load = useCallback(async () => {
@@ -75,7 +76,7 @@ export function useMarkets() {
           }
           return m;
         });
-        setStoreMarkets(updated);
+        setTimeout(() => setStoreMarkets(updated), 0);
         return updated;
       });
     } catch {
