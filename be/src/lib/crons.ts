@@ -20,7 +20,10 @@ import { pushCandle } from "./candleCache";
 let isSettling = false;
 
 export function startSettlementCron() {
-  cron.schedule("* * * * *", async () => {
+  // Every 10s — market expires at any second within the minute, so a per-minute
+  // cron leaves users staring at a 00:00 countdown for up to 60s before the
+  // resolution hits. 10s keeps the gap small without hammering the DB.
+  cron.schedule("*/10 * * * * *", async () => {
     if (isSettling) return;
     isSettling = true;
 
@@ -252,6 +255,12 @@ async function createMarketForSymbol(
 ): Promise<boolean> {
   const currentPrice = parseFloat(prices[symbol]?.mark || "0");
   if (currentPrice <= 0) return false;
+
+  // Defensive guard: re-check active markets right before insert. Without this
+  // a race between the settlement cron and the generator could produce duplicate
+  // active markets for the same symbol.
+  const alreadyActive = await marketRepo.hasActiveForSymbol(symbol);
+  if (alreadyActive) return false;
 
   const deadline = Date.now() + MARKET_DURATION_MIN * 60 * 1000;
   const question = `${symbol} Price: Higher or Lower in ${MARKET_DURATION_MIN} min?`;

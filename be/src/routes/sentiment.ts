@@ -10,19 +10,22 @@ router.get("/:symbol", async (req: Request, res: Response) => {
     const mentions = await elfa.getTopMentions(symbol);
     const data = mentions?.data || [];
 
-    // Calculate simple sentiment from engagement
-    let totalEngagement = 0;
-    let positiveSignals = 0;
+    // Weighted sentiment: each mention contributes a partial signal (0..1)
+    // based on engagement, saturating at ENGAGEMENT_SATURATION so a few viral
+    // posts don't dominate. This adapts to both high-volume mainnet and
+    // low-engagement testnet instead of a fixed "> 100" threshold.
+    const ENGAGEMENT_SATURATION = 10;
+    const sample = data.slice(0, 20);
 
-    for (const m of data.slice(0, 20)) {
+    let weightedScore = 0;
+    for (const m of sample) {
       const engagement = (m.likeCount || 0) + (m.repostCount || 0) * 2;
-      totalEngagement += engagement;
-      if (engagement > 100) positiveSignals++;
+      weightedScore += Math.min(1, engagement / ENGAGEMENT_SATURATION);
     }
 
     const mentionCount = data.length;
-    const bullishPercent = mentionCount > 0
-      ? Math.round((positiveSignals / Math.min(mentionCount, 20)) * 100)
+    const bullishPercent = sample.length > 0
+      ? Math.round((weightedScore / sample.length) * 100)
       : 50;
 
     res.json({

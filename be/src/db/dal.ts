@@ -26,6 +26,14 @@ export const marketRepo = {
     return await db.query.markets.findFirst({ where: eq(markets.id, id) });
   },
 
+  async hasActiveForSymbol(symbol: string): Promise<boolean> {
+    const existing = await db.query.markets.findFirst({
+      where: and(eq(markets.symbol, symbol), eq(markets.status, "active")),
+      columns: { id: true },
+    });
+    return !!existing;
+  },
+
   async create(data: any) {
     const [newMarket] = await db
       .insert(markets)
@@ -126,10 +134,30 @@ export const voteRepo = {
   },
 
   async getByUser(wallet: string) {
-    return await db.query.votes.findMany({
-      where: eq(votes.userWallet, wallet),
-      orderBy: [desc(votes.createdAt)],
-    });
+    // Join markets to save FE an extra /api/markets/all lookup just to resolve
+    // market_id → symbol/question for the vote history.
+    return await db
+      .select({
+        id: votes.id,
+        marketId: votes.marketId,
+        userWallet: votes.userWallet,
+        side: votes.side,
+        amount: votes.amount,
+        payout: votes.payout,
+        orderId: votes.orderId,
+        status: votes.status,
+        createdAt: votes.createdAt,
+        marketSymbol: markets.symbol,
+        marketQuestion: markets.question,
+        marketTargetPrice: markets.targetPrice,
+        marketResolution: markets.resolution,
+        marketDeadline: markets.deadline,
+        marketStatus: markets.status,
+      })
+      .from(votes)
+      .leftJoin(markets, eq(votes.marketId, markets.id))
+      .where(eq(votes.userWallet, wallet))
+      .orderBy(desc(votes.createdAt));
   },
 };
 
