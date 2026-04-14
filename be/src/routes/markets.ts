@@ -12,7 +12,6 @@ router.get("/", async (_req: Request, res: Response) => {
     // Try to enrich with live Pacifica prices
     try {
       const priceData = await pacifica.getPrices();
-      console.log(priceData?.data);
       if (priceData?.data && Array.isArray(priceData.data)) {
         for (const m of markets as any) {
           const p = priceData.data.find(

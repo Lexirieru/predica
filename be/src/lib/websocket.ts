@@ -1,10 +1,11 @@
 import { Server } from "ws";
 import { Server as HttpServer } from "http";
 
-export type WsMessageType = 
-  | "PRICE_UPDATE" 
-  | "NEW_MARKET" 
-  | "MARKET_RESOLVED" 
+export type WsMessageType =
+  | "PRICE_UPDATE"
+  | "CANDLE_UPDATE"
+  | "NEW_MARKET"
+  | "MARKET_RESOLVED"
   | "NEW_VOTE";
 
 export interface WsMessage {

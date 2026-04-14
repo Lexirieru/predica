@@ -8,7 +8,7 @@ import pricesRouter from "./routes/prices";
 import leaderboardRouter from "./routes/leaderboard";
 import sentimentRouter from "./routes/sentiment";
 import walletRouter from "./routes/wallet";
-import { startSettlementCron, startPriceUpdateCron, startMarketGeneratorCron } from "./lib/crons";
+import { startSettlementCron, startPriceStream, startMarketGeneratorCron } from "./lib/crons";
 import { initWebSocketServer } from "./lib/websocket";
 import "./db/migrate"; // Run auto-migration
 
@@ -37,7 +37,7 @@ app.get("/api/health", (_req, res) => {
 
 // Start cron jobs
 startSettlementCron();
-startPriceUpdateCron();
+startPriceStream();
 startMarketGeneratorCron();
 
 server.listen(PORT, () => {

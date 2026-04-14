@@ -7,6 +7,15 @@ import { db } from "../db";
 import { votes, users, transactions, markets } from "../db/schema";
 import { eq, sql, inArray } from "drizzle-orm";
 import { broadcast } from "./websocket";
+import {
+  startPacificaWs,
+  onPrices,
+  onCandle,
+  syncCandleSubscriptions,
+  type PriceTick,
+  type CandleTick,
+} from "./pacificaWs";
+import { pushCandle } from "./candleCache";
 
 let isSettling = false;
 
@@ -131,21 +140,38 @@ export function startSettlementCron() {
   });
 }
 
-export function startPriceUpdateCron() {
-  cron.schedule("*/5 * * * * *", async () => {
-    try {
-      const priceData = await pacifica.getPrices();
-      if (!priceData?.data || !Array.isArray(priceData.data)) return;
+// Throttle DB writes per symbol to at most once per BROADCAST_INTERVAL_MS.
+// Pacifica streams price ticks frequently (often sub-second); writing every
+// tick would hammer the DB. Broadcast over our WS stays real-time.
+const BROADCAST_INTERVAL_MS = 1_000;
+const lastPersist: Record<string, number> = {};
 
+export function startPriceStream() {
+  onPrices(async (ticks: PriceTick[]) => {
+    try {
       const activeMarkets = await marketRepo.getActive();
+      if (activeMarkets.length === 0) return;
+
+      const priceMap: Record<string, number> = {};
+      for (const t of ticks) {
+        const sym = t.symbol.toUpperCase();
+        const mark = parseFloat(t.mark);
+        if (mark > 0) priceMap[sym] = mark;
+      }
+
       const updates: Record<string, number> = {};
+      const now = Date.now();
 
       for (const market of activeMarkets) {
-        const p = priceData.data.find((d: { symbol: string }) => d.symbol.toUpperCase() === market.symbol.toUpperCase());
-        if (p?.mark) {
-          const markPrice = parseFloat(p.mark);
-          await marketRepo.updatePrice(market.id, markPrice);
-          updates[market.symbol] = markPrice;
+        const sym = market.symbol.toUpperCase();
+        const mark = priceMap[sym];
+        if (!mark) continue;
+
+        updates[sym] = mark;
+
+        if (now - (lastPersist[sym] || 0) >= BROADCAST_INTERVAL_MS) {
+          lastPersist[sym] = now;
+          marketRepo.updatePrice(market.id, mark).catch(() => {});
         }
       }
 
@@ -154,6 +180,36 @@ export function startPriceUpdateCron() {
       }
     } catch {}
   });
+
+  onCandle((tick: CandleTick) => {
+    pushCandle(tick);
+    broadcast("CANDLE_UPDATE", {
+      symbol: tick.symbol,
+      interval: tick.interval,
+      openTime: tick.openTime,
+      closeTime: tick.closeTime,
+      open: parseFloat(tick.open),
+      close: parseFloat(tick.close),
+      high: parseFloat(tick.high),
+      low: parseFloat(tick.low),
+      volume: parseFloat(tick.volume),
+      trades: tick.trades,
+    });
+  });
+
+  startPacificaWs();
+
+  // Initial candle sub + periodic reconcile in case market set drifts
+  syncCandleForActive();
+  setInterval(syncCandleForActive, 30_000);
+}
+
+async function syncCandleForActive() {
+  try {
+    const active = await marketRepo.getActive();
+    const symbols = Array.from(new Set(active.map((m) => m.symbol.toUpperCase())));
+    syncCandleSubscriptions(symbols);
+  } catch {}
 }
 
 export function startMarketGeneratorCron() {
@@ -161,6 +217,52 @@ export function startMarketGeneratorCron() {
     await generateMarketsFromTrending();
   });
   setTimeout(() => generateMarketsFromTrending(), 5000);
+}
+
+const CURATED_SYMBOLS = [
+  "BTC", "ETH", "SOL", "BNB", "XRP", "DOGE", "ADA", "AVAX",
+  "SUI", "LINK", "LTC", "TON", "AAVE", "NEAR", "ARB", "UNI",
+  "HYPE", "TAO", "JUP", "WLD", "TRUMP", "PUMP", "BCH", "XMR",
+];
+
+const CURATED_PER_BATCH = 6;
+const TRENDING_PER_BATCH = 4;
+const TRENDING_SCAN_LIMIT = 30;
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
+
+const MARKET_DURATION_MIN = 5;
+
+async function createMarketForSymbol(
+  symbol: string,
+  prices: Record<string, any>,
+  sentiment: number,
+): Promise<boolean> {
+  const currentPrice = parseFloat(prices[symbol]?.mark || "0");
+  if (currentPrice <= 0) return false;
+
+  const deadline = Date.now() + MARKET_DURATION_MIN * 60 * 1000;
+  const question = `${symbol} Price: Higher or Lower in ${MARKET_DURATION_MIN} min?`;
+
+  const newMarket = await marketRepo.create({
+    symbol,
+    question,
+    targetPrice: currentPrice,
+    currentPrice,
+    deadline,
+    category: "crypto",
+    sentiment,
+  });
+
+  broadcast("NEW_MARKET", newMarket);
+  return true;
 }
 
 async function generateMarketsFromTrending() {
@@ -184,41 +286,46 @@ async function generateMarketsFromTrending() {
     }
 
     const activeMarkets = await marketRepo.getActive();
-    const existingSymbols = new Set(activeMarkets.map(m => m.symbol.toUpperCase()));
+    const pickedSymbols = new Set(activeMarkets.map(m => m.symbol.toUpperCase()));
 
+    let created = 0;
+
+    // 1) Curated slots — guaranteed major coins, randomized each batch
+    const curatedPool = shuffle(
+      CURATED_SYMBOLS.filter(s => pacificaSymbols.has(s) && !pickedSymbols.has(s))
+    );
+    for (const symbol of curatedPool) {
+      if (created >= CURATED_PER_BATCH) break;
+      const ok = await createMarketForSymbol(symbol, prices, 50);
+      if (ok) {
+        pickedSymbols.add(symbol);
+        created++;
+      }
+    }
+
+    // 2) Trending slots — fill remainder with Elfa AI trending tokens
     const trending = await elfa.getTrendingTokens("24h");
     const tokens = trending?.data?.data || [];
 
-    let created = 0;
-    const timeVariations = [1, 5, 15];
-
-    for (const token of tokens.slice(0, 8)) {
+    let trendingAdded = 0;
+    for (const token of tokens.slice(0, TRENDING_SCAN_LIMIT)) {
+      if (trendingAdded >= TRENDING_PER_BATCH) break;
       const symbol = token.token.toUpperCase();
-      if (!pacificaSymbols.has(symbol) || existingSymbols.has(symbol)) continue;
+      if (!pacificaSymbols.has(symbol) || pickedSymbols.has(symbol)) continue;
 
-      const currentPrice = parseFloat(prices[symbol]?.mark || "0");
-      if (currentPrice <= 0) continue;
-
-      const duration = timeVariations[Math.floor(Math.random() * timeVariations.length)];
-      const deadline = Date.now() + duration * 60 * 1000;
-      const question = `${symbol} Price: Higher or Lower in ${duration} min?`;
-
-      const newMarket = await marketRepo.create({
-        symbol,
-        question,
-        targetPrice: currentPrice,
-        currentPrice,
-        deadline,
-        category: "crypto",
-        sentiment: Math.round(token.change_percent > 0 ? 75 : 25),
-      });
-
-      broadcast("NEW_MARKET", newMarket);
-      existingSymbols.add(symbol);
-      created++;
+      const sentiment = Math.round(token.change_percent > 0 ? 75 : 25);
+      const ok = await createMarketForSymbol(symbol, prices, sentiment);
+      if (ok) {
+        pickedSymbols.add(symbol);
+        created++;
+        trendingAdded++;
+      }
     }
 
-    if (created > 0) console.log(`[MarketGen] Created ${created} new markets.`);
+    if (created > 0) {
+      console.log(`[MarketGen] Created ${created} new markets (curated + trending).`);
+      syncCandleSubscriptions(Array.from(pickedSymbols));
+    }
   } catch (err) {
     console.error("[MarketGen] Error:", err);
   }
