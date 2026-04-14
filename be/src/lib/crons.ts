@@ -15,7 +15,7 @@ import {
   type PriceTick,
   type CandleTick,
 } from "./pacificaWs";
-import { pushCandle } from "./candleCache";
+import { pushCandle, pruneOldCandles, warmCacheFromDb, CANDLE_RETENTION_DAYS } from "./candleCache";
 
 let isSettling = false;
 
@@ -225,6 +225,42 @@ export function startMarketGeneratorCron() {
     await generateMarketsFromTrending();
   });
   setTimeout(() => generateMarketsFromTrending(), 5000);
+}
+
+/**
+ * Daily prune of candle_snapshots older than CANDLE_RETENTION_DAYS.
+ * Runs at 03:15 UTC (low-traffic window) so the delete doesn't contend with
+ * peak-hour writes.
+ */
+export function startCandleCleanupCron() {
+  cron.schedule("15 3 * * *", async () => {
+    try {
+      const deleted = await pruneOldCandles();
+      if (deleted > 0) {
+        console.log(`[CandleCleanup] Pruned ${deleted} rows older than ${CANDLE_RETENTION_DAYS} days`);
+      }
+    } catch (err) {
+      console.error("[CandleCleanup] Failed:", err);
+    }
+  });
+}
+
+/**
+ * On boot, rehydrate the in-memory candle buffers from DB so the chart
+ * endpoint doesn't return empty arrays while waiting for the first WS tick.
+ * Only warms active-market symbols — everything else loads on demand.
+ */
+export async function warmCandleCache() {
+  try {
+    const active = await marketRepo.getActive();
+    const symbols = Array.from(new Set(active.map((m) => m.symbol.toUpperCase())));
+    if (symbols.length > 0) {
+      await warmCacheFromDb(symbols);
+      console.log(`[CandleCache] Warmed cache for ${symbols.length} symbols`);
+    }
+  } catch (err) {
+    console.error("[CandleCache] Warm failed:", err);
+  }
 }
 
 const CURATED_SYMBOLS = [

@@ -10,7 +10,13 @@ import leaderboardRouter from "./routes/leaderboard";
 import sentimentRouter from "./routes/sentiment";
 import walletRouter from "./routes/wallet";
 import portfolioRouter from "./routes/portfolio";
-import { startSettlementCron, startPriceStream, startMarketGeneratorCron } from "./lib/crons";
+import {
+  startSettlementCron,
+  startPriceStream,
+  startMarketGeneratorCron,
+  startCandleCleanupCron,
+  warmCandleCache,
+} from "./lib/crons";
 import { initWebSocketServer } from "./lib/websocket";
 import "./db/migrate"; // Run auto-migration
 
@@ -83,6 +89,8 @@ app.get("/api/health", (_req, res) => {
 startSettlementCron();
 startPriceStream();
 startMarketGeneratorCron();
+startCandleCleanupCron();
+warmCandleCache();
 
 server.listen(PORT, () => {
   console.log(`Predica backend running on http://localhost:${PORT}`);

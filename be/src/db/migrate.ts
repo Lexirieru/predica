@@ -58,6 +58,23 @@ async function migrate() {
           );
         END IF;
 
+        IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'candle_snapshots') THEN
+          CREATE TABLE candle_snapshots (
+            symbol TEXT NOT NULL,
+            interval TEXT NOT NULL,
+            open_time BIGINT NOT NULL,
+            close_time BIGINT NOT NULL,
+            open REAL NOT NULL,
+            close REAL NOT NULL,
+            high REAL NOT NULL,
+            low REAL NOT NULL,
+            volume REAL NOT NULL DEFAULT 0,
+            trades INTEGER NOT NULL DEFAULT 0,
+            updated_at BIGINT NOT NULL DEFAULT (extract(epoch from now()) * 1000)::bigint,
+            PRIMARY KEY (symbol, interval, open_time)
+          );
+        END IF;
+
         IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'transactions') THEN
           CREATE TABLE transactions (
             id TEXT PRIMARY KEY,
@@ -76,6 +93,8 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_votes_user_wallet ON votes(user_wallet);
       CREATE INDEX IF NOT EXISTS idx_markets_status ON markets(status);
       CREATE INDEX IF NOT EXISTS idx_tx_wallet ON transactions(wallet);
+      CREATE INDEX IF NOT EXISTS idx_candle_symbol_time ON candle_snapshots(symbol, open_time);
+      CREATE INDEX IF NOT EXISTS idx_candle_open_time ON candle_snapshots(open_time);
     `);
     console.log("[Migration] SUCCESS: Schema synchronized.");
   } catch (err) {
