@@ -1,9 +1,10 @@
 "use client";
 
 import { useState, useEffect, useCallback, useRef } from "react";
-import { PredictionMarket, Candle } from "@/lib/types";
-import { fetchMarkets, fetchCandleSeries } from "@/lib/api";
+import { PredictionMarket } from "@/lib/types";
+import { fetchMarkets } from "@/lib/api";
 import { useStore } from "@/store/useStore";
+import { useCandleStore } from "@/store/useCandleStore";
 import { useWebSocket } from "./useWebSocket";
 
 export function useMarkets() {
@@ -18,26 +19,15 @@ export function useMarkets() {
     setTimeout(() => setStoreMarkets(m), 0);
   }, [setStoreMarkets]);
 
-  // Initial load — seed candles from /api/prices/candles/:symbol
+  // Initial load — metadata only. Candles are fetched on-demand by the
+  // visible card via useCandlesFor (useCandleStore), which dedupes and caches
+  // per symbol. Previously we Promise.all'd candle fetches for every market
+  // which ballooned TTI with 1m/5m/15m buckets in the feed.
   const load = useCallback(async () => {
     try {
       const data = await fetchMarkets();
       if (!mounted.current) return;
-
-      const withCandles = await Promise.all(
-        data.map(async (m) => {
-          // Prefer full OHLC from BE persistent cache (candle_snapshots → cache → REST).
-          const ohlc = await fetchCandleSeries(m.symbol, "1h");
-          const candles: Candle[] = ohlc.length >= 2
-            ? ohlc.slice(-60)
-            : [{ time: Math.floor(Date.now() / 1000), open: m.currentPrice, high: m.currentPrice, low: m.currentPrice, close: m.currentPrice }];
-          const priceHistory = candles.map((c) => c.close).slice(-30);
-          return { ...m, candles, priceHistory };
-        })
-      );
-
-      if (!mounted.current) return;
-      sync(withCandles);
+      sync(data);
       setError(null);
     } catch {
       if (!mounted.current) return;
@@ -52,6 +42,14 @@ export function useMarkets() {
     load();
     return () => { mounted.current = false; };
   }, [load]);
+
+  // Refetch the full market list after a WS reconnect. Any messages the server
+  // broadcast while we were offline are lost — a clean refetch is the simplest
+  // way to resync. Event is emitted only on the 2nd+ open, so no redundant
+  // fetch on initial page load.
+  useWebSocket("_RECONNECTED", () => {
+    load();
+  });
 
   // WS: PRICE_UPDATE
   useWebSocket("PRICE_UPDATE", (data) => {
@@ -69,7 +67,9 @@ export function useMarkets() {
     });
   });
 
-  // WS: CANDLE_UPDATE — full OHLC from Pacifica via backend
+  // WS: CANDLE_UPDATE — delegate to candle store. Also mirror close price
+  // into market.currentPrice so the chart's live dot stays in sync between
+  // PRICE_UPDATE ticks.
   useWebSocket("CANDLE_UPDATE", (data) => {
     const raw = data as {
       symbol: string;
@@ -82,34 +82,20 @@ export function useMarkets() {
     };
     if (!raw.symbol || !raw.close) return;
 
-    const candleTime = Math.floor(raw.openTime / 1000); // lightweight-charts uses seconds
+    useCandleStore.getState().upsertCandle(raw.symbol, {
+      time: Math.floor(raw.openTime / 1000),
+      open: raw.open,
+      high: raw.high,
+      low: raw.low,
+      close: raw.close,
+    });
 
     setMarketsLocal((prev) => {
-      const updated = prev.map((m) => {
-        if (m.symbol.toUpperCase() !== raw.symbol.toUpperCase()) return m;
-
-        const candles = [...m.candles];
-        const last = candles[candles.length - 1];
-
-        const newCandle: Candle = {
-          time: candleTime,
-          open: raw.open,
-          high: raw.high,
-          low: raw.low,
-          close: raw.close,
-        };
-
-        if (last && last.time === candleTime) {
-          // Update existing candle (still forming)
-          candles[candles.length - 1] = newCandle;
-        } else {
-          // New candle
-          candles.push(newCandle);
-          if (candles.length > 60) candles.shift();
-        }
-
-        return { ...m, candles, currentPrice: raw.close };
-      });
+      const updated = prev.map((m) =>
+        m.symbol.toUpperCase() === raw.symbol.toUpperCase()
+          ? { ...m, currentPrice: raw.close }
+          : m,
+      );
       setTimeout(() => setStoreMarkets(updated), 0);
       return updated;
     });
@@ -128,14 +114,10 @@ export function useMarkets() {
     const symbol = raw.symbol as string;
 
     setMarketsLocal((prev) => {
-      // Dedupe: if we already have this market id, upgrade it; else carry
-      // forward the in-memory candle buffer for this symbol so the chart
-      // doesn't reset when a bucket rotates.
+      // Dedupe: upgrade existing market by id if present. Candles live in
+      // useCandleStore keyed by symbol, so bucket rotation keeps the chart
+      // series intact without FE needing to hand-carry it.
       const existingById = prev.find((m) => m.id === raw.id);
-      const existingBySymbol = prev.find((m) => m.symbol.toUpperCase() === symbol.toUpperCase());
-      const inheritedCandles = existingBySymbol?.candles ?? [
-        { time: Math.floor(Date.now() / 1000), open: price, high: price, low: price, close: price },
-      ];
 
       const market: PredictionMarket = {
         id: raw.id as string,
@@ -150,8 +132,8 @@ export function useMarkets() {
         noPool: Number(raw.noPool || raw.no_pool || 0),
         totalVoters: Number(raw.totalVoters || raw.total_voters || 0),
         sentiment: Number(raw.sentiment || 50),
-        candles: inheritedCandles,
-        priceHistory: inheritedCandles.map((c) => c.close).slice(-30),
+        candles: [],
+        priceHistory: [],
         status: "active",
         resolution: undefined,
       };
@@ -159,6 +141,46 @@ export function useMarkets() {
       const updated = existingById
         ? prev.map((m) => (m.id === market.id ? market : m))
         : [...prev, market];
+      setTimeout(() => setStoreMarkets(updated), 0);
+      return updated;
+    });
+  });
+
+  // WS: NEW_VOTE — absolute pool totals from server. We overwrite the market
+  // pool/voters with the server-authoritative values. For the user who voted
+  // via optimistic flow, the optimistic update already set the same values
+  // (amount + pre-vote pool == absolute pool), so this overwrite is a no-op.
+  // For spectators, this is their only path to see pool grow in real time.
+  useWebSocket("NEW_VOTE", (data) => {
+    const v = data as {
+      marketId: string;
+      yesPool?: number;
+      noPool?: number;
+      totalVoters?: number;
+    };
+    if (!v.marketId) return;
+    // Legacy payload without pool totals: skip (can't reconcile absolute).
+    if (v.yesPool === undefined || v.noPool === undefined) return;
+    setMarketsLocal((prev) => {
+      let changed = false;
+      const updated = prev.map((m) => {
+        if (m.id !== v.marketId) return m;
+        if (
+          m.yesPool === v.yesPool &&
+          m.noPool === v.noPool &&
+          m.totalVoters === (v.totalVoters ?? m.totalVoters)
+        ) {
+          return m;
+        }
+        changed = true;
+        return {
+          ...m,
+          yesPool: v.yesPool!,
+          noPool: v.noPool!,
+          totalVoters: v.totalVoters ?? m.totalVoters,
+        };
+      });
+      if (!changed) return prev;
       setTimeout(() => setStoreMarkets(updated), 0);
       return updated;
     });

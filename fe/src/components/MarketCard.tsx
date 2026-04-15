@@ -9,6 +9,7 @@ import SentimentBar from "./SentimentBar";
 import SymbolTimeline from "./SymbolTimeline";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useNow } from "@/hooks/useNow";
+import { useCandlesFor } from "@/hooks/useCandlesFor";
 import { fetchCandleSeries } from "@/lib/api";
 
 function fmt(price: number): string {
@@ -143,8 +144,11 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
     });
   });
 
+  // Lazy candle fetch — fires once per symbol, cached globally. Means we
+  // don't block the initial feed render on a sea of /candles requests.
+  const { candles: liveCandles } = useCandlesFor(market.symbol);
   const displayMarket = selectedBucket ?? market;
-  const displayCandles = historicalCandles ?? market.candles;
+  const displayCandles = historicalCandles ?? liveCandles;
   const diff = displayMarket.currentPrice - displayMarket.targetPrice;
   const isUp = diff >= 0;
   const now = useNow(1_000);

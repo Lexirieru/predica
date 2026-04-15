@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { PredictionMarket } from "@/lib/types";
 import { useStore } from "@/store/useStore";
+import { prefetchCandles } from "@/hooks/useCandlesFor";
 import MarketCard from "./MarketCard";
 
 const SWIPE_THRESHOLD = 80;
@@ -105,6 +106,17 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
     },
     [goTo]
   );
+
+  // Prefetch candles for neighbors (1 ahead, 1 behind, wrap) so a swipe
+  // lands on a card that already has data. Store dedupes — safe to over-call.
+  useEffect(() => {
+    if (markets.length === 0) return;
+    const idx = currentMarketIndex < markets.length ? currentMarketIndex : 0;
+    const prev = markets[(idx - 1 + markets.length) % markets.length];
+    const next = markets[(idx + 1) % markets.length];
+    if (prev) prefetchCandles(prev.symbol);
+    if (next) prefetchCandles(next.symbol);
+  }, [markets, currentMarketIndex]);
 
   if (markets.length === 0) return null;
 

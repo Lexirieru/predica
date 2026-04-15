@@ -6,6 +6,8 @@ import Header from "@/components/Header";
 import NavBar from "@/components/NavBar";
 import TradeModal from "@/components/TradeModal";
 import BalanceSync from "@/components/BalanceSync";
+import ConnectionBanner from "@/components/ConnectionBanner";
+import VoteToaster from "@/components/VoteToaster";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -51,6 +53,8 @@ export default function RootLayout({
             <NavBar />
             <TradeModal />
             <BalanceSync />
+            <ConnectionBanner />
+            <VoteToaster />
           </div>
         </Providers>
       </body>

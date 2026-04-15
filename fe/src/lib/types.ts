@@ -19,8 +19,11 @@ export interface PredictionMarket {
   noPool: number;
   totalVoters: number;
   sentiment: number; // 0-100 bullish percentage
-  candles: Candle[]; // OHLC candle data from Pacifica WS
-  priceHistory: number[]; // kept for fallback
+  // Candles and priceHistory are legacy fields kept for back-compat; as of
+  // cycle 06 the chart reads from useCandleStore directly. Still typed as
+  // arrays so existing consumers compile.
+  candles: Candle[];
+  priceHistory: number[];
   status: "active" | "resolved" | "expired" | "settled";
   resolution?: "yes" | "no";
 }

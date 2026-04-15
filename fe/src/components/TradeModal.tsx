@@ -13,8 +13,18 @@ const QUICK_AMOUNTS = [1, 5, 10, 100];
 const SWIPE_THRESHOLD = 80;
 
 export default function TradeModal() {
-  const { tradeModalOpen, tradeModalSide, tradeModalMarketId, closeTradeModal, markets, balance, setBalance } =
-    useStore();
+  const {
+    tradeModalOpen,
+    tradeModalSide,
+    tradeModalMarketId,
+    closeTradeModal,
+    markets,
+    balance,
+    applyOptimisticVote,
+    confirmOptimisticVote,
+    rollbackOptimisticVote,
+    pushToast,
+  } = useStore();
   const { address, isConnected } = useAppKitAccount();
   const { walletProvider } = useAppKitProvider<Provider>("solana");
   const [amount, setAmount] = useState<number>(0);
@@ -68,23 +78,43 @@ export default function TradeModal() {
     setSubmitting(true);
     setStatus("Signing...");
 
+    // Phase 1: sign (this IS synchronous UX — the wallet popup must complete
+    // before we can optimistically commit anything, because a rejected sign
+    // means the user never agreed to the bet at all).
+    let signature: string;
+    let timestamp: number;
     try {
-      // Sign auth message matching backend format: "Predica Auth: VOTE by {wallet} at {timestamp}"
-      const timestamp = Date.now();
+      timestamp = Date.now();
       const message = `Predica Auth: VOTE by ${address} at ${timestamp}`;
       const encoded = new TextEncoder().encode(message);
       const sigBytes = await walletProvider.signMessage(encoded);
-      const signature = bs58.encode(sigBytes);
-
-      setStatus("Placing vote...");
-      const result = await placeVote(market.id, address, tradeModalSide, amount, signature, timestamp);
-      setBalance(result.balance);
-      setStatus("Vote placed!");
-      setTimeout(() => { closeTradeModal(); setAmount(0); setStatus(""); }, 800);
+      signature = bs58.encode(sigBytes);
     } catch (err) {
-      setStatus(err instanceof Error ? err.message : "Failed");
-    } finally {
+      setStatus(err instanceof Error ? err.message : "Signing cancelled");
       setSubmitting(false);
+      return;
+    }
+
+    // Phase 2: optimistic commit. Debit balance + bump pool + close modal
+    // IMMEDIATELY. User sees instant feedback. BE POST happens in background.
+    const marketId = market.id;
+    const side = tradeModalSide;
+    const wager = amount;
+    const tempId = applyOptimisticVote({ marketId, side, amount: wager, wallet: address });
+
+    closeTradeModal();
+    setAmount(0);
+    setStatus("");
+    setSubmitting(false);
+
+    // Phase 3: background POST + reconcile.
+    try {
+      const result = await placeVote(marketId, address, side, wager, signature, timestamp);
+      confirmOptimisticVote(tempId, result.balance ?? balance - wager);
+      pushToast("success", `Vote placed: ${side === "yes" ? "Up" : "Down"} $${wager}`);
+    } catch (err) {
+      const reason = err instanceof Error ? err.message : "Vote failed";
+      rollbackOptimisticVote(tempId, `Vote rolled back: ${reason}`);
     }
   };
 
