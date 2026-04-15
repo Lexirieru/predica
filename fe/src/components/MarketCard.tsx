@@ -82,8 +82,8 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
       return;
     }
     let cancelled = false;
-    const fiveMin = 5 * 60 * 1000;
-    const start = selectedBucket.deadline - fiveMin - 3 * 60 * 1000; // bucket + 3min lead-in
+    const bucketMs = selectedBucket.durationMin * 60_000;
+    const start = selectedBucket.deadline - bucketMs - 3 * 60 * 1000; // bucket + 3min lead-in
     const end = selectedBucket.deadline + 60_000; // 1min post-settlement
 
     fetchCandleSeries(selectedBucket.symbol, "6h")
@@ -104,9 +104,10 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
   }, [selectedBucket]);
 
   useEffect(() => {
+    const windowMs = market.durationMin * 60_000;
     const tick = () => {
       const d = Math.max(0, market.deadline - Date.now());
-      const capped = Math.min(d, 5 * 60 * 1000);
+      const capped = Math.min(d, windowMs);
       setCd({
         m: Math.floor(capped / 60000),
         s: Math.floor((capped % 60000) / 1000),
@@ -115,7 +116,7 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
     tick();
     const i = setInterval(tick, 1000);
     return () => clearInterval(i);
-  }, [market.deadline]);
+  }, [market.deadline, market.durationMin]);
 
   // Real activity feed from WS
   useWebSocket("NEW_VOTE", (data) => {
@@ -194,8 +195,19 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
                 Hot
               </span>
             )}
+            <span
+              className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                market.durationMin === 1
+                  ? "bg-[#dc3246]/20 text-[#dc3246]"
+                  : market.durationMin === 15
+                    ? "bg-[#00b482]/15 text-[#00b482]"
+                    : "bg-white/10 text-white/60"
+              }`}
+            >
+              {market.durationMin}m
+            </span>
           </div>
-          <p className="text-white/20 text-[11px]">5 Minutes</p>
+          <p className="text-white/20 text-[11px]">{market.durationMin} Minute{market.durationMin === 1 ? "" : "s"}</p>
         </div>
         <div
           className={`tabular-nums font-bold text-2xl ${expired ? "text-white/15" : cd.m === 0 && cd.s < 30 ? "text-[var(--color-no)]" : "text-white"}`}

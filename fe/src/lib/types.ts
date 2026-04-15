@@ -13,6 +13,7 @@ export interface PredictionMarket {
   targetPrice: number;
   currentPrice: number;
   deadline: number; // unix timestamp ms
+  durationMin: number; // 1 | 5 | 15 — window length in minutes
   category: "crypto" | "defi" | "meme" | "layer1" | "layer2";
   yesPool: number;
   noPool: number;

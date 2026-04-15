@@ -14,6 +14,7 @@ import DepositModal from "@/components/DepositModal";
 import WithdrawModal from "@/components/WithdrawModal";
 import PortfolioStatsCard from "@/components/PortfolioStats";
 import PnlChart from "@/components/PnlChart";
+import NotificationToggle from "@/components/NotificationToggle";
 
 interface VoteEntry {
   id: string;
@@ -128,6 +129,11 @@ export default function ProfilePage() {
             Withdraw
           </button>
         </div>
+      </div>
+
+      {/* Notifications toggle — only renders useful UI if BE has VAPID on */}
+      <div className="mb-4">
+        <NotificationToggle />
       </div>
 
       {/* Portfolio stats summary */}

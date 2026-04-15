@@ -10,6 +10,10 @@ function mapMarket(raw: any): PredictionMarket {
     targetPrice: Number(raw.targetPrice || raw.target_price || 0),
     currentPrice: Number(raw.currentPrice || raw.current_price || 0),
     deadline: Number(raw.deadline || 0),
+    // durationMin added BE cycle 03. Legacy rows default to 5 on the server
+    // via migration, but fall back here too in case an older cached payload
+    // is in flight during deploy.
+    durationMin: Number(raw.durationMin ?? raw.duration_min ?? 5),
     category: raw.category || "crypto",
     yesPool: Number(raw.yesPool || raw.yes_pool || 0),
     noPool: Number(raw.noPool || raw.no_pool || 0),

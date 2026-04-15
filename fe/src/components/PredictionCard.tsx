@@ -60,7 +60,7 @@ export default function PredictionCard({ market }: { market: PredictionMarket })
           <h2 className="text-white text-lg font-bold leading-tight">
             {market.symbol} Up or Down
           </h2>
-          <p className="text-white/30 text-xs">5 Minutes</p>
+          <p className="text-white/30 text-xs">{market.durationMin} Minute{market.durationMin === 1 ? "" : "s"}</p>
         </div>
         {/* Countdown */}
         <div className="text-right">

@@ -59,8 +59,8 @@ export default function BucketPill({ market, variant, onClick, active }: Props) 
     );
   }
 
-  // upcoming
-  const opensIn = market.deadline - 5 * 60 * 1000 - now;
+  // upcoming — "opens in" is deadline minus the bucket's own duration window
+  const opensIn = market.deadline - market.durationMin * 60_000 - now;
   const opensInMin = Math.max(0, Math.round(opensIn / 60000));
   return (
     <button
