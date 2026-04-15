@@ -30,7 +30,9 @@ export default function PriceChart({
   const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
   const priceLineRef = useRef<ReturnType<ISeriesApi<"Line">["createPriceLine"]> | null>(null);
   const settlementLineRef = useRef<ReturnType<ISeriesApi<"Line">["createPriceLine"]> | null>(null);
-  const initializedRef = useRef(false);
+  // Fingerprint of last seeded data so we can skip redundant setData calls
+  // but still re-seed when the underlying dataset changes (bucket nav).
+  const lastSeedRef = useRef<string>("");
 
   // Create chart once
   useEffect(() => {
@@ -79,7 +81,7 @@ export default function PriceChart({
 
     chartRef.current = chart;
     seriesRef.current = series;
-    initializedRef.current = false;
+    lastSeedRef.current = "";
 
     // On every width change, re-apply width AND re-fit content. Without the
     // fitContent call, a chart that was created while its container was still
@@ -103,13 +105,20 @@ export default function PriceChart({
       chart.remove();
       chartRef.current = null;
       seriesRef.current = null;
-      initializedRef.current = false;
+      lastSeedRef.current = "";
     };
   }, []);
 
-  // Seed historical candle data once
+  // Seed / re-seed candle data whenever the dataset fingerprint changes.
+  // Previously this effect guarded on a `initializedRef` flag that only let
+  // setData run once per mount. That locked the chart to whichever dataset
+  // landed first — a problem because when the user navigated past → back to
+  // live, the first render received the stale historical candles, the second
+  // render had the correct live candles, but the guard blocked re-seeding.
+  // A fingerprint-based check re-seeds on real dataset changes and skips
+  // no-op rerenders.
   useEffect(() => {
-    if (!seriesRef.current || candles.length === 0 || initializedRef.current) return;
+    if (!seriesRef.current || candles.length === 0) return;
 
     const seen = new Map<number, number>();
     for (const c of candles) {
@@ -119,13 +128,19 @@ export default function PriceChart({
       .sort((a, b) => a[0] - b[0])
       .map(([t, v]) => ({ time: t as Time, value: v }));
 
-    if (data.length === 0) {
-      // No valid candle data yet, but mark initialized so realtime ticks can start
-      initializedRef.current = true;
-      return;
-    }
+    if (data.length === 0) return;
+
+    // Fingerprint: first/last time + length + last close. Skips redundant
+    // setData when parent rerenders with the same array contents, but does
+    // fire for "new candle appended" (last time shifts) and "full dataset
+    // swap" (first time shifts) — exactly when we want to re-seed.
+    const first = data[0];
+    const last = data[data.length - 1];
+    const fingerprint = `${data.length}:${first.time}:${last.time}:${last.value}`;
+    if (fingerprint === lastSeedRef.current) return;
+    lastSeedRef.current = fingerprint;
+
     seriesRef.current.setData(data);
-    initializedRef.current = true;
 
     // Target price line
     if (priceLineRef.current) {
@@ -171,9 +186,11 @@ export default function PriceChart({
 
   // Realtime tick update — only runs in live mode. Frozen (historical) mode
   // skips these so the chart stays pinned to the selected bucket's candles.
+  // Requires the chart to have been seeded at least once (lastSeedRef set),
+  // otherwise update() would append to an empty series with no time context.
   useEffect(() => {
     if (frozen) return;
-    if (!seriesRef.current || !initializedRef.current || !currentPrice || currentPrice <= 0) return;
+    if (!seriesRef.current || !lastSeedRef.current || !currentPrice || currentPrice <= 0) return;
 
     const now = Math.floor(Date.now() / 1000);
     seriesRef.current.update({

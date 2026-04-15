@@ -65,23 +65,25 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
   const [cd, setCd] = useState({ m: 0, s: 0 });
   const [activity, setActivity] = useState<ActivityItem[]>([]);
   const [selectedBucket, setSelectedBucket] = useState<PredictionMarket | null>(null);
-  const [historicalCandles, setHistoricalCandles] = useState<Candle[] | null>(null);
+  // Historical candles are keyed by bucket id so stale data from a previous
+  // bucket never leaks into a subsequent render. Without the key, the state
+  // update that clears `historicalCandles` runs AFTER the first render that
+  // flips selectedBucket — meaning the live chart would receive the previous
+  // bucket's candles for one frame and lock its scale to them.
+  const [historical, setHistorical] = useState<{ id: string; candles: Candle[] } | null>(null);
   const nextActId = useRef(0);
 
   // Reset selection when user swipes to a different symbol.
   useEffect(() => {
     setSelectedBucket(null);
-    setHistoricalCandles(null);
+    setHistorical(null);
   }, [market.symbol]);
 
   // When a past bucket is selected, fetch a wider candle window covering its
   // deadline and filter to the relevant slice (bucket duration + small pre/post
   // padding). 6h window covers any realistic past bucket shown in the timeline.
   useEffect(() => {
-    if (!selectedBucket) {
-      setHistoricalCandles(null);
-      return;
-    }
+    if (!selectedBucket) return;
     let cancelled = false;
     const bucketMs = selectedBucket.durationMin * 60_000;
     const start = selectedBucket.deadline - bucketMs - 3 * 60 * 1000; // bucket + 3min lead-in
@@ -95,10 +97,13 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
           return ms >= start && ms <= end;
         });
         // Fall back to unsliced last 30 candles if slice is empty (bucket too old).
-        setHistoricalCandles(sliced.length >= 2 ? sliced : all.slice(-30));
+        setHistorical({
+          id: selectedBucket.id,
+          candles: sliced.length >= 2 ? sliced : all.slice(-30),
+        });
       })
       .catch(() => {
-        if (!cancelled) setHistoricalCandles([]);
+        if (!cancelled) setHistorical({ id: selectedBucket.id, candles: [] });
       });
 
     return () => { cancelled = true; };
@@ -148,6 +153,11 @@ export default function MarketCard({ market }: { market: PredictionMarket }) {
   // don't block the initial feed render on a sea of /candles requests.
   const { candles: liveCandles } = useCandlesFor(market.symbol);
   const displayMarket = selectedBucket ?? market;
+  // Only use historical data when it matches the currently-selected bucket.
+  // Mismatch = stale fetch (user switched buckets or went back to live mid-
+  // fetch) → fall through to liveCandles.
+  const historicalCandles =
+    selectedBucket && historical?.id === selectedBucket.id ? historical.candles : null;
   const displayCandles = historicalCandles ?? liveCandles;
   const diff = displayMarket.currentPrice - displayMarket.targetPrice;
   const isUp = diff >= 0;
