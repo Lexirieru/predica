@@ -112,8 +112,8 @@ export default function NotificationToggle() {
         aria-label="Toggle push notifications"
       >
         <span
-          className={`absolute top-0.5 w-5 h-5 rounded-full bg-white transition-transform ${
-            enabled ? "translate-x-[22px]" : "translate-x-0.5"
+          className={`absolute top-0.5 w-5 h-5 rounded-full bg-white shadow-sm transition-[left] duration-150 ${
+            enabled ? "left-[22px]" : "left-0.5"
           }`}
         />
       </button>

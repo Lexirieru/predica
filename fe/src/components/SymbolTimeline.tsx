@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import type { PredictionMarket } from "@/lib/types";
 import { useMarketSeries } from "@/hooks/useMarketSeries";
 import BucketPill from "./BucketPill";
@@ -31,6 +31,56 @@ export default function SymbolTimeline({
 }: Props) {
   const { series, loading } = useMarketSeries(symbol, pastLimit);
   const scrollRef = useRef<HTMLDivElement>(null);
+
+  // Mouse drag-to-scroll for desktop. Mobile users get native pan-x via
+  // touch-pan-x on the scroller — this handler only activates for mouse
+  // pointers. The parent SwipeStack card has framer-motion drag="y", and
+  // pointerdown here would otherwise bubble up and start a vertical drag
+  // on the card, so we stop propagation on any pointerdown inside the
+  // timeline. That severs the gesture from framer-motion but keeps the
+  // click listeners on BucketPill working (click fires separately).
+  const dragState = useRef<{ active: boolean; startX: number; startScroll: number } | null>(null);
+
+  const handlePointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.stopPropagation();
+    if (e.pointerType !== "mouse") return; // touch/pen use native scroll
+    if (!scrollRef.current) return;
+    dragState.current = {
+      active: true,
+      startX: e.clientX,
+      startScroll: scrollRef.current.scrollLeft,
+    };
+    (e.target as HTMLElement).setPointerCapture?.(e.pointerId);
+  }, []);
+
+  const handlePointerMove = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    const s = dragState.current;
+    if (!s?.active || !scrollRef.current) return;
+    const dx = e.clientX - s.startX;
+    scrollRef.current.scrollLeft = s.startScroll - dx;
+  }, []);
+
+  const handlePointerUp = useCallback(() => {
+    if (dragState.current) dragState.current.active = false;
+  }, []);
+
+  // Wheel → horizontal scroll on desktop. MUST be a native listener (not
+  // React onWheel) because React synthetic event.stopPropagation doesn't
+  // stop native listeners on ancestors — SwipeStack attaches its wheel
+  // handler via addEventListener, so synthetic stopPropagation wouldn't
+  // prevent card-advance. Native listener + native stopPropagation works.
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (!el) return;
+    const onWheel = (e: WheelEvent) => {
+      if (el.scrollWidth <= el.clientWidth + 1) return; // nothing to scroll
+      e.stopPropagation();
+      e.preventDefault();
+      el.scrollLeft += e.deltaY;
+    };
+    el.addEventListener("wheel", onWheel, { passive: false });
+    return () => el.removeEventListener("wheel", onWheel);
+  }, []);
 
   const liveId = series?.live?.id;
 
@@ -80,7 +130,11 @@ export default function SymbolTimeline({
       </div>
       <div
         ref={scrollRef}
-        className="flex flex-nowrap gap-1.5 pb-1 -mx-5 px-5 overflow-x-auto touch-pan-x [&::-webkit-scrollbar]:hidden"
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerUp}
+        onPointerCancel={handlePointerUp}
+        className="flex flex-nowrap gap-1.5 pb-1 -mx-5 px-5 overflow-x-auto touch-pan-x select-none [&::-webkit-scrollbar]:hidden"
         style={{ scrollbarWidth: "none" }}
       >
         {past.map((m) => (
