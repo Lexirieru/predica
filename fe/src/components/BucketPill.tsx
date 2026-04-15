@@ -1,5 +1,6 @@
 "use client";
 
+import { memo } from "react";
 import type { PredictionMarket } from "@/lib/types";
 import { useNow } from "@/hooks/useNow";
 
@@ -18,7 +19,7 @@ function formatTime(ms: number): string {
   return `${String(d.getHours()).padStart(2, "0")}:${String(d.getMinutes()).padStart(2, "0")}`;
 }
 
-export default function BucketPill({ market, variant, onClick, active }: Props) {
+function BucketPillInner({ market, variant, onClick, active }: Props) {
   const now = useNow(30_000);
   const endLabel = formatTime(market.deadline);
 
@@ -74,3 +75,18 @@ export default function BucketPill({ market, variant, onClick, active }: Props) 
     </button>
   );
 }
+
+// Memoized so the timeline's map doesn't re-render every pill on unrelated
+// parent updates (chart ticks, WS broadcasts). Intentionally skips onClick
+// identity: parents pass inline arrows whose identity changes each render,
+// but the handler behavior is determined by the bucket id (captured in the
+// closure) which we DO compare — stale handlers fire with equivalent `m`.
+export default memo(BucketPillInner, (prev, next) => {
+  return (
+    prev.variant === next.variant &&
+    prev.active === next.active &&
+    prev.market.id === next.market.id &&
+    prev.market.deadline === next.market.deadline &&
+    prev.market.resolution === next.market.resolution
+  );
+});

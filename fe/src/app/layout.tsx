@@ -1,13 +1,21 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
+import dynamic from "next/dynamic";
 import "./globals.css";
 import Providers from "@/components/Providers";
 import Header from "@/components/Header";
 import NavBar from "@/components/NavBar";
-import TradeModal from "@/components/TradeModal";
 import BalanceSync from "@/components/BalanceSync";
 import ConnectionBanner from "@/components/ConnectionBanner";
 import VoteToaster from "@/components/VoteToaster";
+
+// TradeModal is mounted on every route but only becomes interactive when the
+// user taps Buy. Next's dynamic() splits it into its own chunk so the initial
+// feed render doesn't block on framer-motion + wallet-provider imports that
+// only matter once the modal opens. Can't use ssr:false here because layout.tsx
+// is a Server Component in the app router; letting it SSR is fine since the
+// modal renders null while closed (no visible payload).
+const TradeModal = dynamic(() => import("@/components/TradeModal"));
 
 const geistSans = Geist({
   variable: "--font-geist-sans",

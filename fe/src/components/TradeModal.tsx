@@ -13,18 +13,19 @@ const QUICK_AMOUNTS = [1, 5, 10, 100];
 const SWIPE_THRESHOLD = 80;
 
 export default function TradeModal() {
-  const {
-    tradeModalOpen,
-    tradeModalSide,
-    tradeModalMarketId,
-    closeTradeModal,
-    markets,
-    balance,
-    applyOptimisticVote,
-    confirmOptimisticVote,
-    rollbackOptimisticVote,
-    pushToast,
-  } = useStore();
+  // Selective selectors so the modal only re-renders when a state slice it
+  // actually reads changes. Bare destructure subscribes to the entire store
+  // and re-rendered on every unrelated change (toasts, markets, candles, ...).
+  const tradeModalOpen = useStore((s) => s.tradeModalOpen);
+  const tradeModalSide = useStore((s) => s.tradeModalSide);
+  const tradeModalMarketId = useStore((s) => s.tradeModalMarketId);
+  const markets = useStore((s) => s.markets);
+  const balance = useStore((s) => s.balance);
+  const closeTradeModal = useStore((s) => s.closeTradeModal);
+  const applyOptimisticVote = useStore((s) => s.applyOptimisticVote);
+  const confirmOptimisticVote = useStore((s) => s.confirmOptimisticVote);
+  const rollbackOptimisticVote = useStore((s) => s.rollbackOptimisticVote);
+  const pushToast = useStore((s) => s.pushToast);
   const { address, isConnected } = useAppKitAccount();
   const { walletProvider } = useAppKitProvider<Provider>("solana");
   const [amount, setAmount] = useState<number>(0);

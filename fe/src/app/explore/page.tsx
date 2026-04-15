@@ -20,7 +20,7 @@ export default function ExplorePage() {
   const { markets, loading } = useMarkets();
   const [filter, setFilter] = useState<Filter>("all");
   const [search, setSearch] = useState("");
-  const { setCurrentMarketIndex } = useStore();
+  const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
   const router = useRouter();
 
   const filtered = markets

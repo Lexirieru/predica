@@ -10,8 +10,11 @@ import {
 } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { useWebSocket } from "@/hooks/useWebSocket";
-import DepositModal from "@/components/DepositModal";
-import WithdrawModal from "@/components/WithdrawModal";
+import dynamic from "next/dynamic";
+// Deposit/Withdraw modals pull @solana/spl-token + wallet tx building; defer
+// those bytes until the user actually opens one of the modals.
+const DepositModal = dynamic(() => import("@/components/DepositModal"), { ssr: false });
+const WithdrawModal = dynamic(() => import("@/components/WithdrawModal"), { ssr: false });
 import PortfolioStatsCard from "@/components/PortfolioStats";
 import PnlChart from "@/components/PnlChart";
 import NotificationToggle from "@/components/NotificationToggle";

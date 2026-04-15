@@ -13,10 +13,42 @@ export async function getMarketInfo() {
   return res.json();
 }
 
+// Short-TTL memo for /info/prices. The endpoint is called from the /api/markets
+// GET route on every client request and from the activator/settlement crons
+// every 10s. Without caching, a feed of 50 clients polling every few seconds
+// produces a burst of identical upstream calls — the upstream rate-limits
+// eventually bite. 5s is tighter than the 10s cron cadence so crons still see
+// fresh data but concurrent HTTP requests share a single upstream call.
+let pricesCache: { at: number; payload: unknown; inFlight: Promise<unknown> | null } = {
+  at: 0,
+  payload: null,
+  inFlight: null,
+};
+const PRICES_TTL_MS = 5_000;
+
 export async function getPrices() {
-  const res = await fetchWithTimeout(`${BASE_URL}/info/prices`);
-  if (!res.ok) throw new Error(`Pacifica /info/prices failed: ${res.status}`);
-  return res.json();
+  const now = Date.now();
+  if (pricesCache.payload && now - pricesCache.at < PRICES_TTL_MS) {
+    return pricesCache.payload;
+  }
+  // Coalesce concurrent misses into a single upstream call (thundering herd).
+  if (pricesCache.inFlight) return pricesCache.inFlight;
+
+  pricesCache.inFlight = (async () => {
+    try {
+      const res = await fetchWithTimeout(`${BASE_URL}/info/prices`);
+      if (!res.ok) throw new Error(`Pacifica /info/prices failed: ${res.status}`);
+      const payload = await res.json();
+      pricesCache = { at: Date.now(), payload, inFlight: null };
+      return payload;
+    } catch (err) {
+      pricesCache.inFlight = null;
+      // Serve stale if we have any — better than an error page.
+      if (pricesCache.payload) return pricesCache.payload;
+      throw err;
+    }
+  })();
+  return pricesCache.inFlight;
 }
 
 export async function getOrderbook(symbol: string) {

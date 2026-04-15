@@ -65,14 +65,18 @@ export function startSettlementCron() {
         return;
       }
 
+      // One query fans out to all expired markets' votes — replaces N
+      // sequential getByMarket calls, which scaled linearly with batch size.
+      const votesByMarket = await voteRepo.getByMarketIds(expired.map((m) => m.id));
+
       for (const market of expired) {
         const symbol = market.symbol.toUpperCase();
         const markPrice = parseFloat(prices[symbol] || "0");
-        
+
         if (markPrice <= 0) continue;
 
         const resolution = markPrice > market.targetPrice ? "yes" : "no";
-        const marketVotes = await voteRepo.getByMarket(market.id);
+        const marketVotes = votesByMarket[market.id] ?? [];
         const totalPool = market.yesPool + market.noPool;
 
         try {

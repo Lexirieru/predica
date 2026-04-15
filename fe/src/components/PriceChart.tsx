@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useRef } from "react";
+import { useEffect, useMemo, useRef } from "react";
 import { createChart, type IChartApi, type ISeriesApi, type LineData, type Time, ColorType, LineSeries } from "lightweight-charts";
 import type { Candle } from "@/lib/types";
 
@@ -109,31 +109,25 @@ export default function PriceChart({
     };
   }, []);
 
-  // Seed / re-seed candle data whenever the dataset fingerprint changes.
-  // Previously this effect guarded on a `initializedRef` flag that only let
-  // setData run once per mount. That locked the chart to whichever dataset
-  // landed first — a problem because when the user navigated past → back to
-  // live, the first render received the stale historical candles, the second
-  // render had the correct live candles, but the guard blocked re-seeding.
-  // A fingerprint-based check re-seeds on real dataset changes and skips
-  // no-op rerenders.
-  useEffect(() => {
-    if (!seriesRef.current || candles.length === 0) return;
-
+  // Normalize candles → dedup time + sort + LineData shape. Memoized because
+  // a single candles array change triggers this, and parent re-renders on
+  // unrelated props (currentPrice) would otherwise redo this O(n log n) work.
+  const data: LineData<Time>[] = useMemo(() => {
     const seen = new Map<number, number>();
     for (const c of candles) {
       if (c.close > 0) seen.set(c.time, c.close);
     }
-    const data: LineData<Time>[] = Array.from(seen.entries())
+    return Array.from(seen.entries())
       .sort((a, b) => a[0] - b[0])
       .map(([t, v]) => ({ time: t as Time, value: v }));
+  }, [candles]);
 
-    if (data.length === 0) return;
+  // Seed / re-seed when dataset fingerprint changes. Using a fingerprint
+  // instead of a once-flag so past→live navigation properly re-seeds when
+  // the candles prop identity flips between renders.
+  useEffect(() => {
+    if (!seriesRef.current || data.length === 0) return;
 
-    // Fingerprint: first/last time + length + last close. Skips redundant
-    // setData when parent rerenders with the same array contents, but does
-    // fire for "new candle appended" (last time shifts) and "full dataset
-    // swap" (first time shifts) — exactly when we want to re-seed.
     const first = data[0];
     const last = data[data.length - 1];
     const fingerprint = `${data.length}:${first.time}:${last.time}:${last.value}`;
@@ -182,7 +176,7 @@ export default function PriceChart({
       chartRef.current?.timeScale().fitContent();
     });
     return () => cancelAnimationFrame(rafId);
-  }, [candles, targetPrice, frozen, settlementPrice, settledPositive]);
+  }, [data, targetPrice, frozen, settlementPrice, settledPositive]);
 
   // Realtime tick update — only runs in live mode. Frozen (historical) mode
   // skips these so the chart stays pinned to the selected bucket's candles.

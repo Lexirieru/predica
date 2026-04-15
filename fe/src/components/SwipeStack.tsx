@@ -25,7 +25,8 @@ const variants = {
 };
 
 export default function SwipeStack({ markets }: { markets: PredictionMarket[] }) {
-  const { currentMarketIndex, setCurrentMarketIndex } = useStore();
+  const currentMarketIndex = useStore((s) => s.currentMarketIndex);
+  const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
   const [direction, setDirection] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   // Fix from fe-swipenit: lock transitions to prevent rapid-fire from trackpad

@@ -1,6 +1,6 @@
 import { db } from "./index";
 import { markets, votes, users } from "./schema";
-import { eq, asc, desc, sql, and, gte } from "drizzle-orm";
+import { eq, asc, desc, sql, and, gte, inArray } from "drizzle-orm";
 import { v4 as uuid } from "uuid";
 
 type Executor = typeof db | Parameters<Parameters<typeof db.transaction>[0]>[0];
@@ -214,6 +214,23 @@ export const voteRepo = {
       where: eq(votes.marketId, marketId),
       orderBy: [desc(votes.createdAt)],
     });
+  },
+
+  /**
+   * Batch-fetch votes for many markets in a single query. Used by the
+   * settlement cron so a batch of 50 expired markets is ONE query instead
+   * of 50 sequential ones. Callers bucket the result by marketId.
+   */
+  async getByMarketIds(marketIds: string[]) {
+    if (marketIds.length === 0) return {};
+    const rows = await db.query.votes.findMany({
+      where: inArray(votes.marketId, marketIds),
+      orderBy: [desc(votes.createdAt)],
+    });
+    const grouped: Record<string, typeof rows> = {};
+    for (const id of marketIds) grouped[id] = [];
+    for (const v of rows) grouped[v.marketId]?.push(v);
+    return grouped;
   },
 
   /**
