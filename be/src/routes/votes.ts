@@ -77,7 +77,20 @@ router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => 
       throw err;
     }
 
-    broadcast("NEW_VOTE", { marketId, side, amount: amountNum, wallet: userWallet, shareWeight });
+    // Re-read the market so the broadcast carries ABSOLUTE pool totals.
+    // FE uses optimistic pool updates for the voter and absolute overwrite
+    // for spectators — same payload serves both, no tempId correlation needed.
+    const freshMarket = await marketRepo.getById(marketId);
+    broadcast("NEW_VOTE", {
+      marketId,
+      side,
+      amount: amountNum,
+      wallet: userWallet,
+      shareWeight,
+      yesPool: freshMarket?.yesPool ?? 0,
+      noPool: freshMarket?.noPool ?? 0,
+      totalVoters: freshMarket?.totalVoters ?? 0,
+    });
 
     const updated = await db.query.users.findFirst({ where: eq(users.wallet, userWallet) });
     // shareWeight surfaces to FE so it can render "your bet counts as 0.7x"
