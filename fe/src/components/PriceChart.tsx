@@ -81,10 +81,20 @@ export default function PriceChart({
     seriesRef.current = series;
     initializedRef.current = false;
 
+    // On every width change, re-apply width AND re-fit content. Without the
+    // fitContent call, a chart that was created while its container was still
+    // mid-layout (e.g. remounted during a card transition) gets stuck with
+    // the Y-scale computed against the transient size. That's what caused
+    // "chart feels zoomed after navigating between past buckets and back to
+    // live" — the new chart instance inherited a cramped visible range from
+    // its first measurement. handleScale/handleScroll are both false so
+    // re-fitting on resize doesn't fight user interaction.
     const observer = new ResizeObserver(() => {
-      if (containerRef.current) {
-        chart.applyOptions({ width: containerRef.current.clientWidth });
-      }
+      const c = chartRef.current;
+      const el = containerRef.current;
+      if (!c || !el) return;
+      c.applyOptions({ width: el.clientWidth });
+      c.timeScale().fitContent();
     });
     observer.observe(containerRef.current);
 
@@ -149,7 +159,14 @@ export default function PriceChart({
       });
     }
 
-    chartRef.current?.timeScale().fitContent();
+    // Defer fitContent to the next frame so the container has committed its
+    // final width before we compute the visible range. Calling it
+    // synchronously during a remount mid-animation produces a Y-scale fit
+    // against a 0-width / pre-layout measurement, which then sticks.
+    const rafId = requestAnimationFrame(() => {
+      chartRef.current?.timeScale().fitContent();
+    });
+    return () => cancelAnimationFrame(rafId);
   }, [candles, targetPrice, frozen, settlementPrice, settledPositive]);
 
   // Realtime tick update — only runs in live mode. Frozen (historical) mode
