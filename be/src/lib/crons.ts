@@ -529,7 +529,17 @@ async function ensureUpcomingBuckets() {
 
     for (const cfg of MARKET_DURATIONS) {
       const slotMs = cfg.durationMin * 60_000;
-      const firstDeadline = nextSlotBoundary(now, slotMs);
+      // nextSlotBoundary returns the next clock-aligned boundary, but for a
+      // 15m slot at now=12:07 that's 12:15 — whose "open time" 12:00 is 7min
+      // in the past. The activator would immediately flip that bucket to
+      // active and users would see a market that starts its countdown at 8min
+      // instead of a fresh 15:00. Push the first deadline forward by a full
+      // slot whenever the aligned boundary's open time has already passed,
+      // so every bucket we create has a FULL duration countdown when it
+      // activates. Price: up to one slot of "no market for this duration"
+      // after server boot in the middle of a slot — acceptable trade.
+      let firstDeadline = nextSlotBoundary(now, slotMs);
+      if (firstDeadline - slotMs < now) firstDeadline += slotMs;
       const lastDeadline = now + cfg.horizonMin * 60_000;
 
       const eligible =
