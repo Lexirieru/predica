@@ -1,6 +1,7 @@
 import "dotenv/config";
-import express from "express";
+import express, { Request, Response, NextFunction } from "express";
 import cors from "cors";
+import helmet from "helmet";
 import http from "http";
 import rateLimit from "express-rate-limit";
 import marketsRouter from "./routes/markets";
@@ -29,8 +30,23 @@ const app = express();
 const server = http.createServer(app);
 const PORT = parseInt(process.env.PORT || "3001");
 
-// CORS — restrict to known frontend origins. Comma-separated list in env.
-const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000")
+// Security headers via helmet — nosniff, X-Frame-Options: DENY, X-DNS-Prefetch,
+// Referrer-Policy, etc. CSP is disabled because this process only serves JSON;
+// there is no HTML surface to protect, and CSP headers on JSON responses add
+// noise without benefit.
+app.use(
+  helmet({
+    contentSecurityPolicy: false,
+    crossOriginResourcePolicy: { policy: "cross-origin" },
+  }),
+);
+
+// CORS — strict allowlist from env. Comma-separated list; server-to-server
+// calls with no Origin header are also allowed. credentials:false because
+// the API authenticates via signed X-Signature headers, never cookies — so
+// there is nothing for a browser to automatically attach, and turning off
+// credentials removes any ambiguity for the browser CORS checker.
+export const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000")
   .split(",")
   .map((s) => s.trim())
   .filter(Boolean);
@@ -38,17 +54,33 @@ const allowedOrigins = (process.env.CORS_ORIGINS || "http://localhost:3000")
 app.use(
   cors({
     origin: (origin, cb) => {
-      // Allow server-to-server / same-origin requests with no Origin header.
       if (!origin) return cb(null, true);
       if (allowedOrigins.includes(origin)) return cb(null, true);
       cb(new Error(`Origin ${origin} not allowed by CORS`));
     },
-    credentials: true,
+    credentials: false,
   }),
 );
 
 // Body size cap — our largest payload is a vote/deposit (<1KB). 10KB is generous.
 app.use(express.json({ limit: "10kb" }));
+
+// Reject write requests that aren't application/json. Browsers let HTML forms
+// POST application/x-www-form-urlencoded or multipart/form-data cross-origin
+// without a preflight (simple-request), which is the classic CSRF surface.
+// Requiring application/json forces a preflight, which our strict CORS then
+// blocks for foreign origins. Combined with the signature auth on write
+// endpoints, this closes the CSRF gap even without a dedicated CSRF token.
+app.use((req: Request, res: Response, next: NextFunction) => {
+  if (req.method === "POST" || req.method === "PUT" || req.method === "PATCH" || req.method === "DELETE") {
+    const ct = req.headers["content-type"] || "";
+    if (!ct.toLowerCase().includes("application/json")) {
+      res.status(415).json({ error: "Content-Type must be application/json" });
+      return;
+    }
+  }
+  next();
+});
 
 // Global rate limit: 120 req/min/IP. Trust the proxy count only when deployed
 // behind one (set TRUST_PROXY=1). Hackathon-safe default without trust.

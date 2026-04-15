@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./fetchWithTimeout";
+
 const BASE_URL = "https://api.elfa.ai";
 
 function getHeaders() {
@@ -12,7 +14,7 @@ function getHeaders() {
 }
 
 export async function getTrendingTokens(timeWindow: string = "24h") {
-  const res = await fetch(`${BASE_URL}/v2/aggregations/trending-tokens?timeWindow=${timeWindow}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/aggregations/trending-tokens?timeWindow=${timeWindow}`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa trending-tokens failed: ${res.status}`);
@@ -20,7 +22,7 @@ export async function getTrendingTokens(timeWindow: string = "24h") {
 }
 
 export async function getTopMentions(ticker: string) {
-  const res = await fetch(`${BASE_URL}/v2/data/top-mentions?ticker=${ticker}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/top-mentions?ticker=${ticker}`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa top-mentions failed: ${res.status}`);
@@ -29,7 +31,7 @@ export async function getTopMentions(ticker: string) {
 
 export async function getKeywordMentions(keywords: string[]) {
   const q = keywords.slice(0, 5).join(",");
-  const res = await fetch(`${BASE_URL}/v2/data/keyword-mentions?keywords=${encodeURIComponent(q)}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/keyword-mentions?keywords=${encodeURIComponent(q)}`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa keyword-mentions failed: ${res.status}`);
@@ -37,7 +39,7 @@ export async function getKeywordMentions(keywords: string[]) {
 }
 
 export async function getTrendingNarratives() {
-  const res = await fetch(`${BASE_URL}/v2/data/trending-narratives`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/trending-narratives`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa trending-narratives failed: ${res.status}`);
@@ -53,7 +55,7 @@ export async function chatAnalysis(
   const body: Record<string, string> = { message, mode };
   if (ticker) body.ticker = ticker;
 
-  const res = await fetch(`${BASE_URL}/v2/chat`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/chat`, {
     method: "POST",
     headers: getHeaders(),
     body: JSON.stringify(body),

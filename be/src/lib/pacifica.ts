@@ -1,5 +1,6 @@
 import nacl from "tweetnacl";
 import bs58 from "bs58";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
 const BASE_URL =
   process.env.PACIFICA_API_URL || "https://test-api.pacifica.fi/api/v1";
@@ -7,19 +8,19 @@ const BASE_URL =
 // --- Public endpoints (no auth) ---
 
 export async function getMarketInfo() {
-  const res = await fetch(`${BASE_URL}/info`);
+  const res = await fetchWithTimeout(`${BASE_URL}/info`);
   if (!res.ok) throw new Error(`Pacifica /info failed: ${res.status}`);
   return res.json();
 }
 
 export async function getPrices() {
-  const res = await fetch(`${BASE_URL}/info/prices`);
+  const res = await fetchWithTimeout(`${BASE_URL}/info/prices`);
   if (!res.ok) throw new Error(`Pacifica /info/prices failed: ${res.status}`);
   return res.json();
 }
 
 export async function getOrderbook(symbol: string) {
-  const res = await fetch(`${BASE_URL}/book?symbol=${symbol}`);
+  const res = await fetchWithTimeout(`${BASE_URL}/book?symbol=${symbol}`);
   if (!res.ok) throw new Error(`Pacifica /book failed: ${res.status}`);
   return res.json();
 }
@@ -30,7 +31,7 @@ export async function getKline(
   startTime: number,
   endTime: number,
 ) {
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${BASE_URL}/kline?symbol=${symbol}&interval=${interval}&start_time=${startTime}&end_time=${endTime}`,
   );
   if (!res.ok) throw new Error(`Pacifica /kline failed: ${res.status}`);
@@ -38,13 +39,13 @@ export async function getKline(
 }
 
 export async function getTrades(symbol: string) {
-  const res = await fetch(`${BASE_URL}/trades?symbol=${symbol}`);
+  const res = await fetchWithTimeout(`${BASE_URL}/trades?symbol=${symbol}`);
   if (!res.ok) throw new Error(`Pacifica /trades failed: ${res.status}`);
   return res.json();
 }
 
 export async function getFundingHistory(symbol: string) {
-  const res = await fetch(`${BASE_URL}/funding_rate/history?symbol=${symbol}`);
+  const res = await fetchWithTimeout(`${BASE_URL}/funding_rate/history?symbol=${symbol}`);
   if (!res.ok)
     throw new Error(`Pacifica /funding_rate/history failed: ${res.status}`);
   return res.json();
@@ -129,7 +130,7 @@ export async function createMarketOrder(
     builder_code: "PREDICA",
   };
 
-  const res = await fetch(`${BASE_URL}/orders/create_market`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/orders/create_market`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -160,7 +161,7 @@ export async function getPositions() {
 
   const signature = signPayload(sigPayload, privateKey);
 
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${BASE_URL}/account/positions?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`,
   );
 
@@ -189,7 +190,7 @@ export async function getAccountInfo() {
 
   const signature = signPayload(sigPayload, privateKey);
 
-  const res = await fetch(
+  const res = await fetchWithTimeout(
     `${BASE_URL}/account/info?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`,
   );
 

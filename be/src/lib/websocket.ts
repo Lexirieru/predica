@@ -1,5 +1,14 @@
 import { Server } from "ws";
-import { Server as HttpServer } from "http";
+import { Server as HttpServer, IncomingMessage } from "http";
+
+// Read allowlist lazily — websocket.ts is imported before env parsing in some
+// test contexts, so we defer reading CORS_ORIGINS until the upgrade fires.
+function getAllowedOrigins(): string[] {
+  return (process.env.CORS_ORIGINS || "http://localhost:3000")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean);
+}
 
 export type WsMessageType =
   | "PRICE_UPDATE"
@@ -21,7 +30,21 @@ let wss: Server | null = null;
  * Initialize WebSocket Server
  */
 export function initWebSocketServer(server: HttpServer) {
-  wss = new Server({ server });
+  // Reject WS upgrades whose Origin isn't in the CORS allowlist. Without this,
+  // any page on the internet can open a socket to our broadcast stream —
+  // harmless for read-only data today, but a blanket hygiene fix.
+  wss = new Server({
+    server,
+    verifyClient: (info: { origin: string; req: IncomingMessage; secure: boolean }) => {
+      const origin = info.origin;
+      // Non-browser clients (curl, server-to-server) send no Origin — allowed.
+      if (!origin) return true;
+      const allowed = getAllowedOrigins();
+      if (allowed.includes(origin)) return true;
+      console.warn(`[WebSocket] Rejected upgrade from unauthorized origin: ${origin}`);
+      return false;
+    },
+  });
 
   wss.on("connection", (ws) => {
     console.log("[WebSocket] New client connected");
