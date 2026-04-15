@@ -2,6 +2,19 @@ import { PredictionMarket, TradeSide, Candle } from "./types";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
 
+// All fetches in this module get an abort timeout. Without it, a wedged
+// upstream would freeze a UI flow indefinitely — the wallet-connect path
+// in particular calls several of these in sequence.
+const API_TIMEOUT_MS = 10_000;
+
+function api(path: string, init: RequestInit = {}): Promise<Response> {
+  const timeoutSignal = AbortSignal.timeout(API_TIMEOUT_MS);
+  const signal = init.signal
+    ? AbortSignal.any([init.signal as AbortSignal, timeoutSignal])
+    : timeoutSignal;
+  return fetch(`${API_URL}${path}`, { ...init, signal });
+}
+
 function mapMarket(raw: any): PredictionMarket {
   return {
     id: raw.id,
@@ -27,28 +40,28 @@ function mapMarket(raw: any): PredictionMarket {
 }
 
 export async function fetchMarkets(): Promise<PredictionMarket[]> {
-  const res = await fetch(`${API_URL}/api/markets`);
+  const res = await api(`/api/markets`);
   if (!res.ok) throw new Error("Failed to fetch markets");
   const data = await res.json();
   return (data as Record<string, unknown>[]).map(mapMarket);
 }
 
 export async function fetchAllMarkets(): Promise<PredictionMarket[]> {
-  const res = await fetch(`${API_URL}/api/markets/all`);
+  const res = await api(`/api/markets/all`);
   if (!res.ok) throw new Error("Failed to fetch all markets");
   const data = await res.json();
   return (data as Record<string, unknown>[]).map(mapMarket);
 }
 
 export async function fetchMarket(id: string): Promise<PredictionMarket> {
-  const res = await fetch(`${API_URL}/api/markets/${id}`);
+  const res = await api(`/api/markets/${id}`);
   if (!res.ok) throw new Error("Failed to fetch market");
   const data = await res.json();
   return mapMarket(data);
 }
 
 export async function fetchPrices(): Promise<Record<string, { mark: string; oracle: string }>> {
-  const res = await fetch(`${API_URL}/api/prices`);
+  const res = await api(`/api/prices`);
   if (!res.ok) throw new Error("Failed to fetch prices");
   const json = await res.json();
   // Pacifica returns { success, data: [...] }
@@ -64,7 +77,7 @@ export async function fetchPrices(): Promise<Record<string, { mark: string; orac
 
 export async function fetchCandles(symbol: string): Promise<number[]> {
   try {
-    const res = await fetch(`${API_URL}/api/prices/candles/${symbol}`);
+    const res = await api(`/api/prices/candles/${symbol}`);
     if (!res.ok) return [];
     const json = await res.json();
     const candles = json.data || [];
@@ -89,7 +102,7 @@ export async function fetchCandleSeries(
   window: "1h" | "2h" | "6h" | "24h" = "1h",
 ): Promise<Candle[]> {
   try {
-    const res = await fetch(`${API_URL}/api/prices/candles/${symbol}?window=${window}`);
+    const res = await api(`/api/prices/candles/${symbol}?window=${window}`);
     if (!res.ok) return [];
     const json = await res.json();
     const raw = json.data || [];
@@ -120,7 +133,7 @@ export interface MarketSeries {
  * Used for Polymarket-style series tabs below the chart.
  */
 export async function fetchMarketSeries(symbol: string, past = 12): Promise<MarketSeries> {
-  const res = await fetch(`${API_URL}/api/markets/symbol/${symbol}?past=${past}`);
+  const res = await api(`/api/markets/symbol/${symbol}?past=${past}`);
   if (!res.ok) throw new Error("Failed to fetch market series");
   const json = await res.json();
   return {
@@ -150,7 +163,7 @@ export interface PortfolioStats {
 }
 
 export async function fetchPortfolioStats(wallet: string): Promise<PortfolioStats> {
-  const res = await fetch(`${API_URL}/api/portfolio/${wallet}/stats`);
+  const res = await api(`/api/portfolio/${wallet}/stats`);
   if (!res.ok) throw new Error("Failed to fetch portfolio stats");
   return res.json();
 }
@@ -163,7 +176,7 @@ export async function placeVote(
   signature: string,
   timestamp: number
 ) {
-  const res = await fetch(`${API_URL}/api/vote`, {
+  const res = await api(`/api/vote`, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
@@ -180,26 +193,26 @@ export async function placeVote(
 }
 
 export async function fetchUserVotes(wallet: string) {
-  const res = await fetch(`${API_URL}/api/vote/user/${wallet}`);
+  const res = await api(`/api/vote/user/${wallet}`);
   if (!res.ok) throw new Error("Failed to fetch user votes");
   return res.json();
 }
 
 export async function fetchLeaderboard() {
-  const res = await fetch(`${API_URL}/api/leaderboard`);
+  const res = await api(`/api/leaderboard`);
   if (!res.ok) throw new Error("Failed to fetch leaderboard");
   return res.json();
 }
 
 // Wallet / Balance
 export async function fetchBalance(wallet: string): Promise<{ balance: number; totalDeposits: number; totalWithdrawals: number }> {
-  const res = await fetch(`${API_URL}/api/wallet/balance/${wallet}`);
+  const res = await api(`/api/wallet/balance/${wallet}`);
   if (!res.ok) throw new Error("Failed to fetch balance");
   return res.json();
 }
 
 export async function verifyDeposit(wallet: string, amount: number, txSignature: string) {
-  const res = await fetch(`${API_URL}/api/wallet/deposit`, {
+  const res = await api(`/api/wallet/deposit`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ wallet, amount, txSignature }),
@@ -210,7 +223,7 @@ export async function verifyDeposit(wallet: string, amount: number, txSignature:
 }
 
 export async function requestWithdraw(wallet: string, amount: number) {
-  const res = await fetch(`${API_URL}/api/wallet/withdraw`, {
+  const res = await api(`/api/wallet/withdraw`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ wallet, amount }),
@@ -221,7 +234,7 @@ export async function requestWithdraw(wallet: string, amount: number) {
 }
 
 export async function fetchTransactions(wallet: string) {
-  const res = await fetch(`${API_URL}/api/wallet/transactions/${wallet}`);
+  const res = await api(`/api/wallet/transactions/${wallet}`);
   if (!res.ok) throw new Error("Failed to fetch transactions");
   return res.json();
 }
@@ -239,7 +252,7 @@ export interface SentimentResponse {
 }
 
 export async function fetchSentiment(symbol: string): Promise<SentimentResponse> {
-  const res = await fetch(`${API_URL}/api/sentiment/${symbol}`);
+  const res = await api(`/api/sentiment/${symbol}`);
   if (!res.ok) throw new Error("Failed to fetch sentiment");
   return res.json();
 }

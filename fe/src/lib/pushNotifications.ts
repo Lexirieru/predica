@@ -1,6 +1,7 @@
 import { signAuthHeaders } from "./signAuth";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+const REQ_TIMEOUT_MS = 10_000;
 
 export type PushSupport =
   | { supported: true }
@@ -39,7 +40,9 @@ async function registerServiceWorker(): Promise<ServiceWorkerRegistration> {
 
 export async function getVapidPublicKey(): Promise<string | null> {
   try {
-    const res = await fetch(`${API_URL}/api/notifications/vapid-public-key`);
+    const res = await fetch(`${API_URL}/api/notifications/vapid-public-key`, {
+      signal: AbortSignal.timeout(REQ_TIMEOUT_MS),
+    });
     if (!res.ok) return null;
     const json = await res.json();
     return json.publicKey || null;
@@ -111,6 +114,7 @@ export async function subscribeToPush(
     method: "POST",
     headers: { "Content-Type": "application/json", ...signed.headers },
     body: JSON.stringify({ userWallet: wallet, subscription: subscription.toJSON() }),
+    signal: AbortSignal.timeout(REQ_TIMEOUT_MS),
   });
 
   if (!res.ok) {
@@ -144,6 +148,7 @@ export async function unsubscribeFromPush(wallet: string, provider: Signer): Pro
     method: "POST",
     headers: { "Content-Type": "application/json", ...signed.headers },
     body: JSON.stringify({ userWallet: wallet, endpoint }),
+    signal: AbortSignal.timeout(REQ_TIMEOUT_MS),
   });
 
   if (!res.ok) {
