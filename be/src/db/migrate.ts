@@ -114,6 +114,12 @@ async function migrate() {
       -- behaving as they did before this column existed.
       ALTER TABLE markets ADD COLUMN IF NOT EXISTS duration_min INTEGER NOT NULL DEFAULT 5;
 
+      -- Hybrid anti-late-bet payout weight. Default 0 triggers legacy behavior
+      -- for pre-existing votes: settlement falls back to amount-weighted split
+      -- when any vote in the market has share_weight=0. New rows will always
+      -- carry a positive weight computed at insert time.
+      ALTER TABLE votes ADD COLUMN IF NOT EXISTS share_weight REAL NOT NULL DEFAULT 0;
+
       CREATE INDEX IF NOT EXISTS idx_votes_market ON votes(market_id);
       CREATE INDEX IF NOT EXISTS idx_votes_user_wallet ON votes(user_wallet);
       CREATE INDEX IF NOT EXISTS idx_markets_status ON markets(status);

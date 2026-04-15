@@ -184,6 +184,7 @@ export const voteRepo = {
       userWallet: string;
       side: "yes" | "no";
       amount: number;
+      shareWeight: number;
       orderId?: string;
     },
   ) {

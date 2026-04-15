@@ -32,6 +32,10 @@ export const votes = pgTable("votes", {
   userWallet: text("user_wallet").notNull(),
   side: text("side", { enum: ["yes", "no"] }).notNull(),
   amount: real("amount").notNull(),
+  // Effective weight applied to `amount` when splitting the winning pool.
+  // Default equals amount for legacy rows (pre-hybrid cycle); new rows carry
+  // the penalty computed at vote time via payoutWeight.ts.
+  shareWeight: real("share_weight").notNull().default(0),
   payout: real("payout").notNull().default(0),
   orderId: text("order_id"),
   status: text("status", { enum: ["pending", "won", "lost"] }).notNull().default("pending"),

@@ -19,6 +19,7 @@ import { pushCandle, pruneOldCandles, warmCacheFromDb, CANDLE_RETENTION_DAYS } f
 import { isElfaTracked, warmElfaValidity } from "./elfaValidator";
 import { evaluateAchievements } from "./achievements";
 import { sendPushToWallet } from "./webpush";
+import { computePayouts } from "./payoutWeight";
 
 let isSettling = false;
 
@@ -94,52 +95,57 @@ export function startSettlementCron() {
             committed = true;
 
             if (marketVotes.length > 0) {
-              const winningSide = resolution;
-              const winners = marketVotes.filter((v) => v.side === winningSide);
-              const losers = marketVotes.filter((v) => v.side !== winningSide);
-              const winnerPool = winners.reduce((sum, v) => sum + v.amount, 0);
+              // Hybrid payout split lives in payoutWeight.computePayouts so the
+              // math stays unit-testable. Here we just apply the outcomes to
+              // DB and collect them for WS/push side-effects.
+              const payouts = computePayouts(
+                marketVotes.map((v) => ({
+                  id: v.id,
+                  userWallet: v.userWallet,
+                  side: v.side,
+                  amount: v.amount,
+                  shareWeight: Number(v.shareWeight),
+                })),
+                resolution as "yes" | "no",
+              );
 
-              for (const vote of winners) {
-                const share = (winnerPool > 0) ? (vote.amount / winnerPool) : 0;
-                const payout = share * totalPool;
-                const profit = payout - vote.amount;
-                outcomes.push({ wallet: vote.userWallet, won: true, payout, profit, amount: vote.amount });
+              for (const o of payouts) {
+                outcomes.push({ wallet: o.wallet, won: o.won, payout: o.payout, profit: o.profit, amount: o.amount });
 
-                await tx.update(votes)
-                  .set({ payout, status: "won" })
-                  .where(eq(votes.id, vote.id));
+                if (o.won) {
+                  await tx.update(votes)
+                    .set({ payout: o.payout, status: "won" })
+                    .where(eq(votes.id, o.voteId));
 
-                await tx.update(users)
-                  .set({ 
-                    balance: sql`${users.balance} + ${payout}`, 
-                    wins: sql`${users.wins} + 1`,
-                    totalPnl: sql`${users.totalPnl} + ${profit}`
-                  })
-                  .where(eq(users.wallet, vote.userWallet));
-                
-                await tx.insert(transactions).values({
-                  id: uuid(),
-                  wallet: vote.userWallet,
-                  type: "payout",
-                  amount: payout,
-                  status: "confirmed",
-                  metadata: JSON.stringify({ marketId: market.id, profit }),
-                  createdAt: Date.now()
-                });
-              }
+                  await tx.update(users)
+                    .set({
+                      balance: sql`${users.balance} + ${o.payout}`,
+                      wins: sql`${users.wins} + 1`,
+                      totalPnl: sql`${users.totalPnl} + ${o.profit}`,
+                    })
+                    .where(eq(users.wallet, o.wallet));
 
-              for (const vote of losers) {
-                outcomes.push({ wallet: vote.userWallet, won: false, payout: 0, profit: -vote.amount, amount: vote.amount });
-                await tx.update(votes)
-                  .set({ payout: 0, status: "lost" })
-                  .where(eq(votes.id, vote.id));
+                  await tx.insert(transactions).values({
+                    id: uuid(),
+                    wallet: o.wallet,
+                    type: "payout",
+                    amount: o.payout,
+                    status: "confirmed",
+                    metadata: JSON.stringify({ marketId: market.id, profit: o.profit }),
+                    createdAt: Date.now(),
+                  });
+                } else {
+                  await tx.update(votes)
+                    .set({ payout: 0, status: "lost" })
+                    .where(eq(votes.id, o.voteId));
 
-                await tx.update(users)
-                  .set({
-                    losses: sql`${users.losses} + 1`,
-                    totalPnl: sql`${users.totalPnl} - ${vote.amount}`
-                  })
-                  .where(eq(users.wallet, vote.userWallet));
+                  await tx.update(users)
+                    .set({
+                      losses: sql`${users.losses} + 1`,
+                      totalPnl: sql`${users.totalPnl} - ${o.amount}`,
+                    })
+                    .where(eq(users.wallet, o.wallet));
+                }
               }
             }
           });

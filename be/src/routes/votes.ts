@@ -6,6 +6,7 @@ import { users } from "../db/schema";
 import { eq } from "drizzle-orm";
 import { broadcast } from "../lib/websocket";
 import { authMiddleware } from "../lib/middleware";
+import { computeShareWeight } from "../lib/payoutWeight";
 
 const router = Router();
 
@@ -45,6 +46,20 @@ router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => 
       return;
     }
 
+    // Hybrid anti-late-bet: compute share weight from pool state BEFORE this
+    // bet is added. The snapshot read above is good enough — a concurrent
+    // vote landing in the tiny race window doesn't change the math materially
+    // (at most shifts p by one-bet-worth of pool). See payoutWeight.ts.
+    const targetPoolBefore = side === "yes" ? market.yesPool : market.noPool;
+    const oppositePoolBefore = side === "yes" ? market.noPool : market.yesPool;
+    const shareWeight = computeShareWeight({
+      targetPoolBefore,
+      oppositePoolBefore,
+      deadline: Number(market.deadline),
+      now: Date.now(),
+      durationMin: market.durationMin ?? 5,
+    });
+
     // Atomic section: debit + vote + pool + user stats commit together.
     // If debit fails (insufficient balance), the whole transaction aborts.
     let vote;
@@ -52,7 +67,7 @@ router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => 
       vote = await db.transaction(async (tx) => {
         const debited = await userRepo.tryDebit(tx, userWallet, amountNum);
         if (!debited) throw new Error("INSUFFICIENT_BALANCE");
-        return await voteRepo.create(tx, { marketId, userWallet, side, amount: amountNum });
+        return await voteRepo.create(tx, { marketId, userWallet, side, amount: amountNum, shareWeight });
       });
     } catch (err: any) {
       if (err?.message === "INSUFFICIENT_BALANCE") {
@@ -62,10 +77,12 @@ router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => 
       throw err;
     }
 
-    broadcast("NEW_VOTE", { marketId, side, amount: amountNum, wallet: userWallet });
+    broadcast("NEW_VOTE", { marketId, side, amount: amountNum, wallet: userWallet, shareWeight });
 
     const updated = await db.query.users.findFirst({ where: eq(users.wallet, userWallet) });
-    res.status(201).json({ ...vote, balance: updated?.balance ?? 0 });
+    // shareWeight surfaces to FE so it can render "your bet counts as 0.7x"
+    // warning in the trade confirm UI and the portfolio vote list.
+    res.status(201).json({ ...vote, balance: updated?.balance ?? 0, shareWeight });
   } catch (err) {
     console.error("[Vote] Error:", err);
     res.status(500).json({ error: "Vote failed" });
