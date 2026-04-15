@@ -10,6 +10,7 @@ export const markets = pgTable("markets", {
   targetPrice: real("target_price").notNull(),
   currentPrice: real("current_price").notNull().default(0),
   deadline: bigint("deadline", { mode: "number" }).notNull(),
+  durationMin: integer("duration_min").notNull().default(5),
   category: text("category").notNull().default("crypto"),
   yesPool: real("yes_pool").notNull().default(0),
   noPool: real("no_pool").notNull().default(0),
@@ -91,6 +92,24 @@ export const achievements = pgTable("achievements", {
   return {
     walletIdx: index("idx_achievements_wallet").on(table.wallet),
     walletBadgeUnique: uniqueIndex("uq_achievement_wallet_badge").on(table.wallet, table.badgeType),
+  }
+});
+
+// Browser Web Push subscriptions. One wallet can have multiple endpoints
+// (desktop + phone, different browsers). `endpoint` is globally unique —
+// that's the push service URL the browser gave us, so same device+browser
+// re-subscribing just updates the keys.
+export const pushSubscriptions = pgTable("push_subscriptions", {
+  id: text("id").primaryKey(),
+  wallet: text("wallet").notNull(),
+  endpoint: text("endpoint").notNull(),
+  p256dh: text("p256dh").notNull(),
+  auth: text("auth").notNull(),
+  createdAt: bigint("created_at", { mode: "number" }).notNull().default(tsDefault),
+}, (table) => {
+  return {
+    walletIdx: index("idx_push_wallet").on(table.wallet),
+    endpointUnique: uniqueIndex("uq_push_endpoint").on(table.endpoint),
   }
 });
 

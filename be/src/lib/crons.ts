@@ -18,6 +18,7 @@ import {
 import { pushCandle, pruneOldCandles, warmCacheFromDb, CANDLE_RETENTION_DAYS } from "./candleCache";
 import { isElfaTracked, warmElfaValidity } from "./elfaValidator";
 import { evaluateAchievements } from "./achievements";
+import { sendPushToWallet } from "./webpush";
 
 let isSettling = false;
 
@@ -79,6 +80,11 @@ export function startSettlementCron() {
           // tx fully commits so we never send MARKET_RESOLVED for a rolled-back
           // settlement — which would leave the FE out of sync with DB state.
           let committed = false;
+          // Populated inside the tx so we can fire notifications AFTER commit,
+          // per-user with their own outcome (payout + profit). Reading the
+          // votes table again post-commit would work but adds a roundtrip.
+          type Outcome = { wallet: string; won: boolean; payout: number; profit: number; amount: number };
+          const outcomes: Outcome[] = [];
           await db.transaction(async (tx) => {
             const won = await marketRepo.resolve(market.id, resolution as "yes" | "no", tx);
             if (!won) {
@@ -97,6 +103,7 @@ export function startSettlementCron() {
                 const share = (winnerPool > 0) ? (vote.amount / winnerPool) : 0;
                 const payout = share * totalPool;
                 const profit = payout - vote.amount;
+                outcomes.push({ wallet: vote.userWallet, won: true, payout, profit, amount: vote.amount });
 
                 await tx.update(votes)
                   .set({ payout, status: "won" })
@@ -122,12 +129,13 @@ export function startSettlementCron() {
               }
 
               for (const vote of losers) {
+                outcomes.push({ wallet: vote.userWallet, won: false, payout: 0, profit: -vote.amount, amount: vote.amount });
                 await tx.update(votes)
                   .set({ payout: 0, status: "lost" })
                   .where(eq(votes.id, vote.id));
 
                 await tx.update(users)
-                  .set({ 
+                  .set({
                     losses: sql`${users.losses} + 1`,
                     totalPnl: sql`${users.totalPnl} - ${vote.amount}`
                   })
@@ -150,6 +158,33 @@ export function startSettlementCron() {
             for (const wallet of touched) {
               evaluateAchievements(wallet).catch((e) =>
                 console.warn(`[Achievements] eval failed for ${wallet}:`, (e as Error).message),
+              );
+            }
+
+            // Fire Web Push per participant. Fire-and-forget; each wallet gets
+            // a personalized title/body based on their outcome. Tag by marketId
+            // so a second settlement retry wouldn't double-notify the user
+            // (browsers dedupe on tag).
+            for (const o of outcomes) {
+              const title = o.won
+                ? `🎉 You won +$${o.profit.toFixed(2)}!`
+                : `💔 You lost $${o.amount.toFixed(2)}`;
+              const body = `${symbol} resolved ${resolution.toUpperCase()} @ $${markPrice.toFixed(4)}`;
+              sendPushToWallet(o.wallet, {
+                title,
+                body,
+                tag: `market:${market.id}`,
+                url: `/markets/${market.id}`,
+                data: {
+                  marketId: market.id,
+                  symbol,
+                  resolution,
+                  won: o.won,
+                  payout: o.payout,
+                  profit: o.profit,
+                },
+              }).catch((e) =>
+                console.warn(`[WebPush] send failed for ${o.wallet}:`, (e as Error).message),
               );
             }
           }
@@ -299,6 +334,21 @@ const CURATED_SYMBOLS = [
   "HYPE", "TAO", "JUP", "WLD", "TRUMP", "PUMP", "BCH", "XMR",
 ];
 
+// Pacifica's perp list is asset-class-agnostic: alongside crypto it lists
+// equities (NVDA, TSLA, GOOGL, MSTR, HOOD, CRCL, PLTR, BP, SPY, QQQ, SP500),
+// forex (USDJPY, EURUSD, GBPUSD, USDKRW), and commodities (XAU, XAG, NATGAS,
+// COPPER, PLATINUM, URNM, CL). Predica is a crypto prediction market, so we
+// exclude those even if Elfa happens to have ticker mention data for them.
+const NON_CRYPTO_SYMBOLS = new Set<string>([
+  // Equities / ETFs
+  "NVDA", "TSLA", "GOOGL", "AAPL", "AMZN", "MSTR", "HOOD", "CRCL", "PLTR", "BP",
+  "SPY", "QQQ", "SP500",
+  // Forex
+  "USDJPY", "EURUSD", "GBPUSD", "USDKRW",
+  // Commodities
+  "XAU", "XAG", "NATGAS", "COPPER", "PLATINUM", "URNM", "CL",
+]);
+
 const CURATED_PER_BATCH = 6;
 const TRENDING_PER_BATCH = 4;
 const TRENDING_SCAN_LIMIT = 30;
@@ -312,6 +362,28 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
+// Market duration variety. Each entry produces its own parallel bucket series.
+//   - horizonMin: how far ahead we pre-create buckets for that duration.
+//     1m has a tight horizon because 60 buckets/hour × many symbols explodes
+//     row count fast. 15m has a wide horizon so the upcoming lineup is visible.
+//   - symbols: "all" = every active symbol; otherwise a whitelist. 1m is
+//     restricted to the top-liquidity majors so rapid-fire markets stay on
+//     tokens with reliable mark-price streams.
+type DurationConfig = {
+  durationMin: number;
+  horizonMin: number;
+  symbols: "all" | Set<string>;
+};
+
+const MARKET_DURATIONS: DurationConfig[] = [
+  { durationMin: 1, horizonMin: 15, symbols: new Set(["BTC", "ETH", "SOL"]) },
+  { durationMin: 5, horizonMin: 60, symbols: "all" },
+  { durationMin: 15, horizonMin: 180, symbols: "all" },
+];
+
+// Legacy constant kept for seedSentiment signatures / tests that still
+// reference a single duration. New code should read durationMin from the
+// market row instead.
 const MARKET_DURATION_MIN = 5;
 
 /**
@@ -338,30 +410,30 @@ function seedSentiment(priceInfo: any, mentionChangePercent = 0): number {
   return Math.max(0, Math.min(100, Math.round(50 + combined * 50)));
 }
 
-const HORIZON_MIN = 60; // pre-create buckets 1h ahead
-const SLOT_MS = MARKET_DURATION_MIN * 60_000;
-
 /**
- * Snap timestamp to the next multiple of SLOT_MS. e.g. if now is 08:02:37
- * and SLOT_MS=5min, returns 08:05:00. Used to align bucket deadlines to
+ * Snap timestamp to the next multiple of slotMs. e.g. if now is 08:02:37
+ * and slotMs=5min, returns 08:05:00. Used to align bucket deadlines to
  * clock boundaries so they're predictable (:00, :05, :10, ...).
  */
-function nextSlotBoundary(now: number): number {
-  return Math.ceil(now / SLOT_MS) * SLOT_MS;
+function nextSlotBoundary(now: number, slotMs: number): number {
+  return Math.ceil(now / slotMs) * slotMs;
 }
 
 async function createBucket(
   symbol: string,
   deadline: number,
+  durationMin: number,
   sentiment: number,
   prices: Record<string, any>,
 ): Promise<boolean> {
-  // Idempotency: skip if a market for this exact (symbol, deadline) already exists.
-  const existing = await marketRepo.getBySymbolDeadline(symbol, deadline);
+  // Idempotency scoped to (symbol, deadline, durationMin): different duration
+  // buckets may legitimately share a wall-clock deadline (e.g. a 5m and a 15m
+  // both ending at :15), so we don't want the shorter one to block the longer.
+  const existing = await marketRepo.getBySymbolDeadline(symbol, deadline, durationMin);
   if (existing) return false;
 
   const currentPrice = parseFloat(prices[symbol]?.mark || "0");
-  const question = `${symbol} Price: Higher or Lower in ${MARKET_DURATION_MIN} min?`;
+  const question = `${symbol} Price: Higher or Lower in ${durationMin} min?`;
 
   // targetPrice locked to 0 at creation — the activator cron stamps the real
   // price when the bucket becomes active. See startMarketActivatorCron.
@@ -371,6 +443,7 @@ async function createBucket(
     targetPrice: 0,
     currentPrice,
     deadline,
+    durationMin,
     category: "crypto",
     sentiment,
     status: "upcoming",
@@ -381,9 +454,10 @@ async function createBucket(
 }
 
 /**
- * Pre-create upcoming buckets for curated + trending symbols covering the
- * next HORIZON_MIN window. Buckets are 5-minute slots aligned to clock
- * boundaries. Idempotent — re-runs skip existing (symbol, deadline) pairs.
+ * Pre-create upcoming buckets for curated + trending symbols. One series per
+ * entry in MARKET_DURATIONS (1m/5m/15m), each with its own horizon. Slots
+ * align to clock boundaries so deadlines land on predictable times.
+ * Idempotent — re-runs skip existing (symbol, deadline, durationMin) triples.
  */
 async function ensureUpcomingBuckets() {
   try {
@@ -411,6 +485,7 @@ async function ensureUpcomingBuckets() {
     // Elfa's trending aggregator includes stocks that lack per-ticker data.
     const candidateSet = new Set<string>();
     for (const s of CURATED_SYMBOLS) {
+      if (NON_CRYPTO_SYMBOLS.has(s)) continue;
       if (pacificaSymbols.has(s)) candidateSet.add(s);
     }
     try {
@@ -418,6 +493,7 @@ async function ensureUpcomingBuckets() {
       const tokens = trending?.data?.data || [];
       for (const t of tokens.slice(0, TRENDING_SCAN_LIMIT)) {
         const s = t.token.toUpperCase();
+        if (NON_CRYPTO_SYMBOLS.has(s)) continue;
         if (pacificaSymbols.has(s)) candidateSet.add(s);
       }
     } catch {
@@ -436,23 +512,35 @@ async function ensureUpcomingBuckets() {
       return;
     }
 
-    // Slot schedule: next boundary .. now + HORIZON_MIN.
+    // Per-duration slot schedule. Outer loop: duration config. Inner loop:
+    // eligible symbols for that duration. Innermost: deadlines up to horizon.
     const now = Date.now();
-    const firstDeadline = nextSlotBoundary(now);
-    const lastDeadline = now + HORIZON_MIN * 60_000;
-
     let created = 0;
-    for (const symbol of activeSymbols) {
-      const mentionGrowth = 0; // seed sentiment uses price only at creation
-      const sentiment = seedSentiment(prices[symbol], mentionGrowth);
-      for (let deadline = firstDeadline; deadline <= lastDeadline; deadline += SLOT_MS) {
-        const ok = await createBucket(symbol, deadline, sentiment, prices);
-        if (ok) created++;
+
+    for (const cfg of MARKET_DURATIONS) {
+      const slotMs = cfg.durationMin * 60_000;
+      const firstDeadline = nextSlotBoundary(now, slotMs);
+      const lastDeadline = now + cfg.horizonMin * 60_000;
+
+      const eligible =
+        cfg.symbols === "all"
+          ? activeSymbols
+          : new Set(Array.from(activeSymbols).filter((s) => (cfg.symbols as Set<string>).has(s)));
+
+      for (const symbol of eligible) {
+        const mentionGrowth = 0; // seed sentiment uses price only at creation
+        const sentiment = seedSentiment(prices[symbol], mentionGrowth);
+        for (let deadline = firstDeadline; deadline <= lastDeadline; deadline += slotMs) {
+          const ok = await createBucket(symbol, deadline, cfg.durationMin, sentiment, prices);
+          if (ok) created++;
+        }
       }
     }
 
     if (created > 0) {
-      console.log(`[Buckets] Pre-created ${created} upcoming buckets across ${activeSymbols.size} symbols.`);
+      console.log(
+        `[Buckets] Pre-created ${created} upcoming buckets across ${activeSymbols.size} symbols (durations: ${MARKET_DURATIONS.map((d) => d.durationMin + "m").join("/")}).`,
+      );
       syncCandleSubscriptions(Array.from(activeSymbols));
     }
   } catch (err) {
@@ -468,7 +556,7 @@ async function ensureUpcomingBuckets() {
 export function startMarketActivatorCron() {
   cron.schedule("*/10 * * * * *", async () => {
     try {
-      const due = await marketRepo.getDueForActivation(Date.now(), SLOT_MS);
+      const due = await marketRepo.getDueForActivation(Date.now());
       if (due.length === 0) return;
 
       // One price fetch covers all symbols in the batch.
@@ -480,7 +568,8 @@ export function startMarketActivatorCron() {
 
       for (const m of due) {
         const mark = prices[m.symbol.toUpperCase()];
-        const openedAt = Number(m.deadline) - SLOT_MS;
+        const slotMs = (m.durationMin ?? MARKET_DURATION_MIN) * 60_000;
+        const openedAt = Number(m.deadline) - slotMs;
         const stale = Date.now() - openedAt > 60_000;
 
         if (!mark || mark <= 0) {

@@ -85,6 +85,17 @@ async function migrate() {
           );
         END IF;
 
+        IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'push_subscriptions') THEN
+          CREATE TABLE push_subscriptions (
+            id TEXT PRIMARY KEY,
+            wallet TEXT NOT NULL,
+            endpoint TEXT NOT NULL,
+            p256dh TEXT NOT NULL,
+            auth TEXT NOT NULL,
+            created_at BIGINT NOT NULL DEFAULT (extract(epoch from now()) * 1000)::bigint
+          );
+        END IF;
+
         IF NOT EXISTS (SELECT FROM pg_tables WHERE schemaname = 'public' AND tablename  = 'transactions') THEN
           CREATE TABLE transactions (
             id TEXT PRIMARY KEY,
@@ -99,6 +110,10 @@ async function migrate() {
         END IF;
       END $$;
 
+      -- Variable market durations (1m/5m/15m). Default 5 keeps existing rows
+      -- behaving as they did before this column existed.
+      ALTER TABLE markets ADD COLUMN IF NOT EXISTS duration_min INTEGER NOT NULL DEFAULT 5;
+
       CREATE INDEX IF NOT EXISTS idx_votes_market ON votes(market_id);
       CREATE INDEX IF NOT EXISTS idx_votes_user_wallet ON votes(user_wallet);
       CREATE INDEX IF NOT EXISTS idx_markets_status ON markets(status);
@@ -107,6 +122,8 @@ async function migrate() {
       CREATE INDEX IF NOT EXISTS idx_candle_open_time ON candle_snapshots(open_time);
       CREATE INDEX IF NOT EXISTS idx_achievements_wallet ON achievements(wallet);
       CREATE UNIQUE INDEX IF NOT EXISTS uq_achievement_wallet_badge ON achievements(wallet, badge_type);
+      CREATE INDEX IF NOT EXISTS idx_push_wallet ON push_subscriptions(wallet);
+      CREATE UNIQUE INDEX IF NOT EXISTS uq_push_endpoint ON push_subscriptions(endpoint);
     `);
     console.log("[Migration] SUCCESS: Schema synchronized.");
   } catch (err) {

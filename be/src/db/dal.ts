@@ -34,21 +34,25 @@ export const marketRepo = {
     return !!existing;
   },
 
-  async getBySymbolDeadline(symbol: string, deadline: number) {
-    return await db.query.markets.findFirst({
-      where: and(eq(markets.symbol, symbol), eq(markets.deadline, deadline)),
-    });
+  async getBySymbolDeadline(symbol: string, deadline: number, durationMin?: number) {
+    // durationMin is optional for back-compat. When supplied we scope the
+    // lookup so 1m/5m/15m buckets that happen to share a wall-clock deadline
+    // (e.g. 12:00:00) don't collide during idempotent re-creation.
+    const conds = [eq(markets.symbol, symbol), eq(markets.deadline, deadline)];
+    if (typeof durationMin === "number") conds.push(eq(markets.durationMin, durationMin));
+    return await db.query.markets.findFirst({ where: and(...conds) });
   },
 
   /**
-   * Return upcoming markets whose "open time" (deadline - slotMs) is at or
-   * before `now`. Caller transitions them to active.
+   * Return upcoming markets whose "open time" (deadline - durationMin*60s) is at
+   * or before `now`. Each row carries its own duration_min, so activation timing
+   * is per-market, not one global SLOT_MS.
    */
-  async getDueForActivation(now: number, slotMs: number) {
+  async getDueForActivation(now: number) {
     return await db.query.markets.findMany({
       where: and(
         eq(markets.status, "upcoming"),
-        sql`${markets.deadline} - ${slotMs} <= ${now}`,
+        sql`${markets.deadline} - (${markets.durationMin} * 60000) <= ${now}`,
         sql`${markets.deadline} > ${now}`,
       ),
       orderBy: [asc(markets.deadline)],

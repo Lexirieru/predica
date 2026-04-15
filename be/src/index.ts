@@ -12,6 +12,7 @@ import walletRouter from "./routes/wallet";
 import portfolioRouter from "./routes/portfolio";
 import achievementsRouter from "./routes/achievements";
 import adminRouter from "./routes/admin";
+import notificationsRouter from "./routes/notifications";
 import {
   startSettlementCron,
   startPriceStream,
@@ -85,6 +86,7 @@ app.use("/api/wallet", walletRouter);
 app.use("/api/portfolio", portfolioRouter);
 app.use("/api/achievements", achievementsRouter);
 app.use("/api/admin", adminRouter);
+app.use("/api/notifications", notificationsRouter);
 
 // Health check
 app.get("/api/health", (_req, res) => {
