@@ -2,8 +2,11 @@
 
 import { useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import { useAppKitProvider } from "@reown/appkit/react";
+import type { Provider } from "@reown/appkit-adapter-solana";
 import { requestWithdraw } from "@/lib/api";
 import { useStore } from "@/store/useStore";
+import { signAuthHeaders } from "@/lib/signAuth";
 
 const QUICK_AMOUNTS = [10, 50, 100, 500];
 
@@ -21,15 +24,34 @@ export default function WithdrawModal({ open, onClose, onSuccess, wallet, balanc
   const [txLink, setTxLink] = useState("");
   const [submitting, setSubmitting] = useState(false);
   const setStoreBalance = useStore((s) => s.setBalance);
+  const { walletProvider } = useAppKitProvider<Provider>("solana");
 
   const handleWithdraw = async () => {
     if (amount <= 0 || amount > balance || submitting) return;
+    if (!walletProvider) {
+      setStatus("Wallet not connected");
+      return;
+    }
 
     setSubmitting(true);
+    setStatus("Sign to authorize withdrawal...");
+
+    // 1. Sign the auth message so BE authMiddleware accepts the request.
+    //    Without this the server rejects with 401 — that was the silent
+    //    failure before this fix.
+    let signed;
+    try {
+      signed = await signAuthHeaders(walletProvider, "WITHDRAW", wallet);
+    } catch (err) {
+      setStatus(err instanceof Error ? err.message : "Sign cancelled");
+      setSubmitting(false);
+      return;
+    }
+
     setStatus("Sending USDP to your wallet...");
 
     try {
-      const result = await requestWithdraw(wallet, amount);
+      const result = await requestWithdraw(wallet, amount, signed.headers["x-signature"], signed.timestamp);
       setStoreBalance(result.balance);
       const sig = result.txSignature;
       setTxLink(`https://explorer.solana.com/tx/${sig}?cluster=devnet`);

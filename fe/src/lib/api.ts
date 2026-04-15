@@ -222,10 +222,19 @@ export async function verifyDeposit(wallet: string, amount: number, txSignature:
   return data;
 }
 
-export async function requestWithdraw(wallet: string, amount: number) {
+export async function requestWithdraw(
+  wallet: string,
+  amount: number,
+  signature: string,
+  timestamp: number,
+) {
   const res = await api(`/api/wallet/withdraw`, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: {
+      "Content-Type": "application/json",
+      "x-signature": signature,
+      "x-timestamp": String(timestamp),
+    },
     body: JSON.stringify({ wallet, amount }),
   });
   const data = await res.json();
