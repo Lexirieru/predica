@@ -1,12 +1,13 @@
 "use client";
 
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { useStore } from "@/store/useStore";
 import { placeVote } from "@/lib/api";
 import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 import type { Provider } from "@reown/appkit-adapter-solana";
 import bs58 from "bs58";
+import { computeShareWeight, describeWeight } from "@/lib/payoutWeight";
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 const SWIPE_THRESHOLD = 80;
@@ -25,6 +26,28 @@ export default function TradeModal() {
   const isUp = tradeModalSide === "yes";
   const colorHex = isUp ? "#00D1A9" : "#FF4976";
   const label = isUp ? "Up" : "Down";
+
+  // Live-preview the effective share weight for this bet. Re-ticks every
+  // second so user can see the warning grow as time runs out. Pool-reading
+  // from Zustand store keeps it in sync with WS NEW_VOTE events.
+  const [tick, setTick] = useState(0);
+  useEffect(() => {
+    if (!tradeModalOpen) return;
+    const i = setInterval(() => setTick((t) => t + 1), 1000);
+    return () => clearInterval(i);
+  }, [tradeModalOpen]);
+  void tick; // re-render trigger only
+
+  const previewWeight = market && tradeModalSide
+    ? computeShareWeight({
+        targetPoolBefore: tradeModalSide === "yes" ? market.yesPool : market.noPool,
+        oppositePoolBefore: tradeModalSide === "yes" ? market.noPool : market.yesPool,
+        deadline: market.deadline,
+        now: Date.now(),
+        durationMin: market.durationMin,
+      })
+    : 1;
+  const weightInfo = describeWeight(previewWeight);
 
   const handleDragStart = () => { dragStartTime.current = Date.now(); };
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -112,7 +135,7 @@ export default function TradeModal() {
                 <p className="text-white text-4xl font-bold tabular-nums">${amount}</p>
               </div>
 
-              <div className="flex gap-2 justify-center mb-4">
+              <div className="flex gap-2 justify-center mb-3">
                 {QUICK_AMOUNTS.map((val) => (
                   <button key={val} onClick={() => setAmount((p) => p + val)}
                     className="px-4 py-2 rounded-xl bg-white/[0.06] border border-white/[0.1] text-white/70 text-sm font-semibold hover:bg-white/[0.1] transition-colors"
@@ -120,6 +143,23 @@ export default function TradeModal() {
                 ))}
                 <button onClick={() => setAmount(0)} className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/30 text-xs">Clear</button>
               </div>
+
+              {/* Share weight preview — shows late-bet penalty before user commits */}
+              {amount > 0 && previewWeight < 1 && (
+                <div
+                  className="mb-3 px-3 py-2 rounded-xl border flex items-center gap-2"
+                  style={{ borderColor: `${weightInfo.color}35`, backgroundColor: `${weightInfo.color}0d` }}
+                >
+                  <div className="text-xs flex-1">
+                    <p className="font-semibold" style={{ color: weightInfo.color }}>
+                      {weightInfo.label}
+                    </p>
+                    <p className="text-white/40 text-[10px] mt-0.5">
+                      Effective stake for payout split: ${(amount * previewWeight).toFixed(2)} (loss on settlement is still full ${amount.toFixed(2)})
+                    </p>
+                  </div>
+                </div>
+              )}
 
               {status && (
                 <p className={`text-center text-xs mb-3 ${status.includes("nsufficient") || status.includes("ail") ? "text-[var(--color-no)]" : status.includes("placed") ? "text-[var(--color-yes)]" : "text-white/40"}`}>
