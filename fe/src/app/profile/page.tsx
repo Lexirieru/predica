@@ -13,6 +13,18 @@ const WithdrawModal = dynamic(() => import("@/components/WithdrawModal"), { ssr:
 import PnlChart from "@/components/PnlChart";
 import NotificationToggle from "@/components/NotificationToggle";
 
+// All timestamps render in UTC — consistent across every user regardless of
+// local TZ, matching how BE stores deadlines.
+const UTC_DATETIME = new Intl.DateTimeFormat("en-GB", {
+  year: "numeric", month: "short", day: "2-digit",
+  hour: "2-digit", minute: "2-digit", hour12: false,
+  timeZone: "UTC",
+});
+const UTC_DATE = new Intl.DateTimeFormat("en-GB", {
+  year: "numeric", month: "short", day: "2-digit",
+  timeZone: "UTC",
+});
+
 interface VoteEntry {
   id: string;
   marketId: string;
@@ -188,7 +200,7 @@ export default function ProfilePage() {
                       {symbol} <span className="text-white/40">{vote.side === "yes" ? "Up" : "Down"}</span>
                     </p>
                     <p className="text-white/20 text-[10px]">
-                      ${vote.amount.toFixed(2)} · {new Date(vote.createdAt).toLocaleString()}
+                      ${vote.amount.toFixed(2)} · {UTC_DATETIME.format(new Date(vote.createdAt))} UTC
                     </p>
                   </div>
                 </div>
@@ -227,7 +239,7 @@ export default function ProfilePage() {
                   </div>
                   <div>
                     <p className="text-white text-sm font-medium capitalize">{tx.type}</p>
-                    <p className="text-white/20 text-[10px]">{new Date(tx.createdAt).toLocaleDateString()}</p>
+                    <p className="text-white/20 text-[10px]">{UTC_DATE.format(new Date(tx.createdAt))} UTC</p>
                   </div>
                 </div>
                 <div className="text-right">

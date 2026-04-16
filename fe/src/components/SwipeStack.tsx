@@ -29,8 +29,8 @@ export default function SwipeStack({
   onAdvance,
 }: {
   markets: PredictionMarket[];
-  /** Dismiss a settled bucket so the feed advances to the next live one. */
-  onAdvance?: (marketId: string) => void;
+  /** Advance the whole feed from settled to live (one click = all cards). */
+  onAdvance?: () => void;
 }) {
   const currentMarketIndex = useStore((s) => s.currentMarketIndex);
   const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
@@ -42,13 +42,16 @@ export default function SwipeStack({
   // rotates (settled → next active 5m bucket has a different market.id but
   // same symbol). Tracking by id alone would cause the index to jump to 0
   // every 5min when the bucket rotates.
-  const currentSymbolRef = useRef<string | null>(null);
+  // Track by (symbol + durationMin) so the user stays on the same card when
+  // its bucket rotates. Different durations for the same symbol are distinct
+  // cards, so symbol alone is not enough to identify the card.
+  const currentKeyRef = useRef<string | null>(null);
 
   useEffect(() => {
     if (markets.length === 0) return;
-    const currentSym = currentSymbolRef.current;
-    if (currentSym) {
-      const newIdx = markets.findIndex((m) => m.symbol === currentSym);
+    const currentKey = currentKeyRef.current;
+    if (currentKey) {
+      const newIdx = markets.findIndex((m) => `${m.symbol}:${m.durationMin}` === currentKey);
       if (newIdx >= 0 && newIdx !== currentMarketIndex) {
         setCurrentMarketIndex(newIdx);
       }
@@ -133,7 +136,7 @@ export default function SwipeStack({
 
   const safeIndex = currentMarketIndex < markets.length ? currentMarketIndex : 0;
   const market = markets[safeIndex];
-  currentSymbolRef.current = market.symbol;
+  currentKeyRef.current = `${market.symbol}:${market.durationMin}`;
 
   return (
     <div
@@ -155,7 +158,7 @@ export default function SwipeStack({
           // symbol (settled 8:30 → active 8:35) doesn't retrigger the swipe
           // enter/exit animation. Swiping to a different symbol still animates
           // because the key changes.
-          key={market.symbol}
+          key={`${market.symbol}:${market.durationMin}`}
           custom={direction}
           variants={variants}
           initial="enter"

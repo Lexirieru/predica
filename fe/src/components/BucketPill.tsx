@@ -14,13 +14,17 @@ interface Props {
   active?: boolean;
 }
 
+// All market times display in UTC so deadlines are unambiguous for a global
+// user base. Don't swap to local TZ without product sign-off.
+const TIME_FMT = new Intl.DateTimeFormat("en-GB", {
+  hour: "2-digit",
+  minute: "2-digit",
+  hour12: false,
+  timeZone: "UTC",
+});
+
 function formatTime(ms: number): string {
-  const d = new Date(ms);
-  let h = d.getHours();
-  const m = String(d.getMinutes()).padStart(2, "0");
-  const ampm = h >= 12 ? "PM" : "AM";
-  h = h % 12 || 12;
-  return `${h}:${m} ${ampm}`;
+  return `${TIME_FMT.format(new Date(ms))} UTC`;
 }
 
 function BucketPillInner({ market, variant, onClick, active }: Props) {
@@ -58,7 +62,7 @@ function BucketPillInner({ market, variant, onClick, active }: Props) {
   }
 
   // upcoming
-  const opensIn = market.deadline - 5 * 60_000 - now;
+  const opensIn = market.deadline - market.durationMin * 60_000 - now;
   const opensInMin = Math.max(0, Math.round(opensIn / 60000));
   return (
     <button

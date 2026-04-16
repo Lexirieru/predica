@@ -126,6 +126,7 @@ export function useMarkets() {
         targetPrice: Number(raw.targetPrice || raw.target_price || 0),
         currentPrice: price,
         deadline: Number(raw.deadline || 0),
+        durationMin: (Number(raw.durationMin ?? raw.duration_min ?? 5) === 15 ? 15 : 5) as 5 | 15,
         category: (raw.category as PredictionMarket["category"]) || "crypto",
         yesPool: Number(raw.yesPool || raw.yes_pool || 0),
         noPool: Number(raw.noPool || raw.no_pool || 0),

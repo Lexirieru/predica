@@ -56,6 +56,7 @@ export default function TradeModal() {
         oppositePoolBefore: tradeModalSide === "yes" ? market.noPool : market.yesPool,
         deadline: market.deadline,
         now: Date.now(),
+        durationMin: market.durationMin,
       })
     : 1;
 

@@ -73,8 +73,9 @@ export default function MarketCard({
   onAdvance,
 }: {
   market: PredictionMarket;
-  /** Called when user clicks "Go to live market" on a settled card. */
-  onAdvance?: (marketId: string) => void;
+  /** Called when user clicks "Go to live market" on a settled card.
+      Advances the whole feed to live (not just this card). */
+  onAdvance?: () => void;
 }) {
   const openTradeModal = useStore((s) => s.openTradeModal);
   const [cd, setCd] = useState({ m: 0, s: 0 });
@@ -100,7 +101,8 @@ export default function MarketCard({
   useEffect(() => {
     if (!selectedBucket) return;
     let cancelled = false;
-    const start = selectedBucket.deadline - 5 * 60_000 - 3 * 60 * 1000; // bucket + 3min lead-in
+    const bucketMs = selectedBucket.durationMin * 60_000;
+    const start = selectedBucket.deadline - bucketMs - 3 * 60 * 1000; // bucket + 3min lead-in
     const end = selectedBucket.deadline + 60_000; // 1min post-settlement
 
     fetchCandleSeries(selectedBucket.symbol, "6h")
@@ -124,10 +126,10 @@ export default function MarketCard({
   }, [selectedBucket]);
 
   useEffect(() => {
-    const WINDOW_MS = 5 * 60_000;
+    const windowMs = market.durationMin * 60_000;
     const tick = () => {
       const d = Math.max(0, market.deadline - Date.now());
-      const capped = Math.min(d, WINDOW_MS);
+      const capped = Math.min(d, windowMs);
       setCd({
         m: Math.floor(capped / 60000),
         s: Math.floor((capped % 60000) / 1000),
@@ -136,7 +138,7 @@ export default function MarketCard({
     tick();
     const i = setInterval(tick, 1000);
     return () => clearInterval(i);
-  }, [market.deadline]);
+  }, [market.deadline, market.durationMin]);
 
   // Real activity feed from WS
   useWebSocket("NEW_VOTE", (data) => {
@@ -183,10 +185,6 @@ export default function MarketCard({
   //   - the current bucket has naturally settled (sticky-settled view).
   // In either case PriceChart ignores live currentPrice ticks.
   const frozen = !!selectedBucket || resolved;
-  // Only the manually-selected past view renders the big "Resolved UP/DOWN"
-  // banner overlay. The sticky-settled view shows a compact button instead
-  // so the chart stays visible.
-  const showResolutionOverlay = !!selectedBucket && !!selectedBucket.resolution;
   const settledPositive = selectedBucket?.resolution === "yes" || market.resolution === "yes";
   const totalPool = market.yesPool + market.noPool;
   const upOdds =
@@ -197,25 +195,6 @@ export default function MarketCard({
 
   return (
     <div className="h-full rounded-2xl bg-[#141414] border border-white/6 overflow-hidden flex flex-col relative">
-      {/* Resolution banner overlay — only for manually-selected past bucket */}
-      {showResolutionOverlay && selectedBucket && (
-        <div className="absolute inset-0 z-10 flex items-center justify-center bg-black/60 backdrop-blur-sm rounded-2xl">
-          <div className="text-center">
-            <p className="text-white/40 text-xs uppercase tracking-widest mb-2">
-              Resolved
-            </p>
-            <p
-              className={`text-3xl font-bold ${selectedBucket.resolution === "yes" ? "text-[#00b482]" : "text-[#dc3246]"}`}
-            >
-              {selectedBucket.resolution === "yes" ? "UP" : "DOWN"}
-            </p>
-            <p className="text-white/20 text-xs mt-2">
-              Price was {selectedBucket.resolution === "yes" ? "above" : "below"} target
-            </p>
-          </div>
-        </div>
-      )}
-
       {/* Header */}
       <div className="px-5 pt-5 pb-1 flex items-center gap-3 shrink-0">
         <div className="w-10 h-10 rounded-full bg-linear-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-base font-bold shrink-0">
@@ -224,13 +203,22 @@ export default function MarketCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-white text-base font-bold leading-snug">
-              {market.symbol} Up or Down - 5 Minutes
+              {market.symbol} Up or Down - {market.durationMin} Minutes
             </h3>
             {market.totalVoters > 0 && (
               <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-orange-500/20 text-orange-400">
                 Hot
               </span>
             )}
+            <span
+              className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                market.durationMin === 15
+                  ? "bg-[#00b482]/15 text-[#00b482]"
+                  : "bg-white/10 text-white/60"
+              }`}
+            >
+              {market.durationMin}m
+            </span>
           </div>
         </div>
         <div
@@ -352,7 +340,7 @@ export default function MarketCard({
             </span>
           </div>
           <button
-            onClick={() => onAdvance?.(market.id)}
+            onClick={() => onAdvance?.()}
             className="w-full h-12 rounded-xl font-bold text-[15px] flex items-center justify-center gap-2 bg-white/8 border border-white/10 text-white hover:bg-white/12 active:scale-[0.97] transition-all"
           >
             <span className="relative flex h-2 w-2">

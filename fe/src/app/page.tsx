@@ -12,34 +12,43 @@ export default function FeedPage() {
   // When a NEW bucket later settles (different id), user gets pinned again.
   const [dismissedSettled, setDismissedSettled] = useState<Set<string>>(new Set());
 
-  const handleAdvance = useCallback((marketId: string) => {
+  // One-click "Go to live market" advances ALL settled cards to their live
+  // buckets — not just the one whose button was clicked. The user sees a
+  // wall of settled cards at the 5m boundary; making them tap each one is
+  // tedious, and the intent of the button is "show me the live feed now".
+  const handleAdvance = useCallback(() => {
     setDismissedSettled((prev) => {
-      if (prev.has(marketId)) return prev;
       const next = new Set(prev);
-      next.add(marketId);
+      for (const m of markets) {
+        if (m.status === "settled" || m.status === "resolved") {
+          next.add(m.id);
+        }
+      }
       return next;
     });
-  }, []);
+  }, [markets]);
 
-  // One card per symbol with STICKY-SETTLED behavior:
-  //   - If a settled 5m bucket exists and user hasn't dismissed it,
-  //     show it (chart frozen + "Go to live market" button).
+  // One card per (symbol + durationMin) with STICKY-SETTLED behavior:
+  //   - If a settled bucket of that duration exists and user hasn't dismissed
+  //     it, show it (chart frozen + "Go to live market" button).
   //   - Otherwise show the live bucket.
-  // This replaces auto-advance: user sees settlement outcome and manually
-  // clicks the button when they want to move to the next round.
+  // Each symbol can appear twice in the feed (one 5m card + one 15m card)
+  // so users can swipe between both durations. Order is randomized per
+  // session to avoid always seeing the same symbol/duration first.
+  const [shuffleSeed] = useState(() => Math.random());
   const activeMarkets = useMemo(() => {
     const now = Date.now();
-    const fives = markets;
-    const bySymbol = new Map<string, typeof fives[number]>();
-    for (const m of fives) {
+    const byKey = new Map<string, (typeof markets)[number]>();
+    for (const m of markets) {
       const live = m.status === "active" && m.deadline > now;
       const settled = m.status === "settled" || m.status === "resolved";
       if (!live && !settled) continue;
       if (settled && dismissedSettled.has(m.id)) continue;
 
-      const existing = bySymbol.get(m.symbol);
+      const key = `${m.symbol}:${m.durationMin}`;
+      const existing = byKey.get(key);
       if (!existing) {
-        bySymbol.set(m.symbol, m);
+        byKey.set(key, m);
         continue;
       }
       const existingSettled =
@@ -47,7 +56,7 @@ export default function FeedPage() {
 
       // Settled (not dismissed) takes priority over live — sticky behavior.
       if (settled && !existingSettled) {
-        bySymbol.set(m.symbol, m);
+        byKey.set(key, m);
         continue;
       }
       if (!settled && existingSettled) {
@@ -55,11 +64,18 @@ export default function FeedPage() {
       }
       // Both same category: prefer the one with the later deadline.
       if (m.deadline > existing.deadline) {
-        bySymbol.set(m.symbol, m);
+        byKey.set(key, m);
       }
     }
-    return Array.from(bySymbol.values()).sort((a, b) => a.symbol.localeCompare(b.symbol));
-  }, [markets, dismissedSettled]);
+    // Stable pseudo-random shuffle (per-session, same seed every render so
+    // order doesn't flip on re-render). Hash combines id + seed.
+    const list = Array.from(byKey.values());
+    return list.sort((a, b) => {
+      const ha = ((a.id.charCodeAt(0) * 131) % 1000) / 1000 + shuffleSeed;
+      const hb = ((b.id.charCodeAt(0) * 131) % 1000) / 1000 + shuffleSeed;
+      return (ha % 1) - (hb % 1);
+    });
+  }, [markets, dismissedSettled, shuffleSeed]);
 
   // Fallback polling when feed is empty. Backend broadcasts NEW_MARKET via WS
   // when activator promotes upcoming → active, but FE can miss that event if

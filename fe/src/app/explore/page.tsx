@@ -8,7 +8,7 @@ import CountdownTimer from "@/components/CountdownTimer";
 import OddsBar from "@/components/OddsBar";
 import { useRouter } from "next/navigation";
 
-type Filter = "all" | "trending" | "ending";
+type DurationFilter = "all" | 5 | 15;
 
 function formatPrice(price: number): string {
   if (price >= 10000) return `$${price.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
@@ -18,7 +18,7 @@ function formatPrice(price: number): string {
 
 export default function ExplorePage() {
   const { markets, loading } = useMarkets();
-  const [filter, setFilter] = useState<Filter>("all");
+  const [duration, setDuration] = useState<DurationFilter>("all");
   const [search, setSearch] = useState("");
   const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
   const router = useRouter();
@@ -31,16 +31,8 @@ export default function ExplorePage() {
       }
       return true;
     })
-    .filter((m) => {
-      if (filter === "trending") return m.totalVoters >= 1000;
-      if (filter === "ending") return m.deadline - Date.now() < 7 * 86400000;
-      return true;
-    })
-    .sort((a, b) => {
-      if (filter === "ending") return a.deadline - b.deadline;
-      if (filter === "trending") return b.totalVoters - a.totalVoters;
-      return b.yesPool + b.noPool - (a.yesPool + a.noPool);
-    });
+    .filter((m) => duration === "all" || m.durationMin === duration)
+    .sort((a, b) => b.yesPool + b.noPool - (a.yesPool + a.noPool));
 
   const handleCardClick = (market: PredictionMarket) => {
     const idx = markets.findIndex((m) => m.id === market.id);
@@ -48,10 +40,10 @@ export default function ExplorePage() {
     router.push("/");
   };
 
-  const filters: { key: Filter; label: string }[] = [
+  const durations: { key: DurationFilter; label: string }[] = [
     { key: "all", label: "All" },
-    { key: "trending", label: "Trending" },
-    { key: "ending", label: "Ending Soon" },
+    { key: 5, label: "5 Minutes" },
+    { key: 15, label: "15 Minutes" },
   ];
 
   return (
@@ -73,20 +65,20 @@ export default function ExplorePage() {
         />
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-2 mb-4">
-        {filters.map((f) => (
+      {/* Duration filter */}
+      <div className="flex gap-2 mb-4 overflow-x-auto [&::-webkit-scrollbar]:hidden" style={{ scrollbarWidth: "none" }}>
+        {durations.map((d) => (
           <button
-            key={f.key}
-            onClick={() => setFilter(f.key)}
-            className="px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-150"
+            key={String(d.key)}
+            onClick={() => setDuration(d.key)}
+            className="shrink-0 px-3 py-1.5 rounded-full text-xs font-medium transition-all duration-150"
             style={{
-              background: filter === f.key ? "rgba(0,209,169,0.15)" : "rgba(255,255,255,0.04)",
-              color: filter === f.key ? "var(--color-yes)" : "rgba(255,255,255,0.4)",
-              border: `1px solid ${filter === f.key ? "rgba(0,209,169,0.3)" : "rgba(255,255,255,0.06)"}`,
+              background: duration === d.key ? "rgba(0,209,169,0.15)" : "rgba(255,255,255,0.04)",
+              color: duration === d.key ? "var(--color-yes)" : "rgba(255,255,255,0.4)",
+              border: `1px solid ${duration === d.key ? "rgba(0,209,169,0.3)" : "rgba(255,255,255,0.06)"}`,
             }}
           >
-            {f.label}
+            {d.label}
           </button>
         ))}
       </div>
@@ -121,6 +113,15 @@ export default function ExplorePage() {
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2 mb-1">
                       <span className="text-xs font-semibold text-white/60">{market.symbol}</span>
+                      <span
+                        className={`px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider ${
+                          market.durationMin === 15
+                            ? "bg-[#00b482]/15 text-[#00b482]"
+                            : "bg-white/10 text-white/60"
+                        }`}
+                      >
+                        {market.durationMin}m
+                      </span>
                       <span className="text-white/15">·</span>
                       <span className="text-[10px] text-white/25">{market.totalVoters.toLocaleString()} voters</span>
                     </div>

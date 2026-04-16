@@ -77,7 +77,7 @@ export default function SentimentBar({ symbol, fallback }: Props) {
           {summary}
           {data && (
             <p className="text-[9px] text-white/20 mt-1.5">
-              Updated {new Date(data.lastUpdated).toLocaleTimeString()} · {data.mentionCount} mentions
+              Updated {new Date(data.lastUpdated).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", hour12: false, timeZone: "UTC" })} UTC · {data.mentionCount} mentions
             </p>
           )}
         </div>

@@ -5,19 +5,20 @@
 // files side-by-side and update both.
 
 export const MIN_SHARE_WEIGHT = 0.1;
-const MARKET_DURATION_MS = 5 * 60_000;
 
 export interface WeightInputs {
   targetPoolBefore: number;
   oppositePoolBefore: number;
   deadline: number;
   now: number;
+  durationMin: number;
 }
 
 export function computeShareWeight(input: WeightInputs): number {
-  const { targetPoolBefore, oppositePoolBefore, deadline, now } = input;
-  const remaining = Math.max(0, Math.min(MARKET_DURATION_MS, deadline - now));
-  const timeFraction = remaining / MARKET_DURATION_MS;
+  const { targetPoolBefore, oppositePoolBefore, deadline, now, durationMin } = input;
+  const durationMs = Math.max(1, durationMin * 60_000);
+  const remaining = Math.max(0, Math.min(durationMs, deadline - now));
+  const timeFraction = remaining / durationMs;
   const totalPool = targetPoolBefore + oppositePoolBefore;
   const p = totalPool > 0 ? targetPoolBefore / totalPool : 0.5;
   const favoriteBias = Math.max(0, 2 * p - 1);

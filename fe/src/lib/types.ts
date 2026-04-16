@@ -12,7 +12,8 @@ export interface PredictionMarket {
   question: string;
   targetPrice: number;
   currentPrice: number;
-  deadline: number; // unix timestamp ms
+  deadline: number; // unix timestamp ms (UTC by definition)
+  durationMin: 5 | 15; // round length in minutes — only 5 or 15
   category: "crypto" | "defi" | "meme" | "layer1" | "layer2";
   yesPool: number;
   noPool: number;
