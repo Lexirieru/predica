@@ -517,9 +517,16 @@ async function ensureUpcomingBuckets() {
       }),
     );
 
+    // Fallback: if Elfa is down/quota-exceeded and validates 0 symbols,
+    // use the Pacifica-listed curated set so market generation keeps running.
+    // Sentiment bar will show neutral 50% but the demo stays alive.
     if (activeSymbols.size === 0) {
-      console.warn("[Buckets] No symbols passed Pacifica ∩ Elfa-tracked filter. Skipping batch.");
-      return;
+      console.warn("[Buckets] Elfa filter empty — falling back to curated Pacifica symbols.");
+      for (const s of candidateSet) activeSymbols.add(s);
+      if (activeSymbols.size === 0) {
+        console.warn("[Buckets] No Pacifica-listed candidates either. Skipping batch.");
+        return;
+      }
     }
 
     // Per-duration slot schedule. Outer loop: duration config. Inner loop:

@@ -12,14 +12,22 @@ import { useNow } from "@/hooks/useNow";
 import { useCandlesFor } from "@/hooks/useCandlesFor";
 import { fetchCandleSeries } from "@/lib/api";
 
+// 5 significant digits (matches Pacifica display).
+//   74755   → 74,755
+//   2347.6  → 2,347.6
+//   45.183  → 45.183
+//   1.4155  → 1.4155 (XRP)
+//   0.03453 → 0.034538 (DOGE)
 function fmt(price: number): string {
-  if (price >= 10000)
-    return price.toLocaleString("en-US", {
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2,
-    });
-  if (price >= 1) return price.toFixed(3);
-  return price.toFixed(6);
+  const abs = Math.abs(price);
+  let precision: number;
+  if (abs <= 0) precision = 2;
+  else if (abs >= 1) precision = Math.max(0, 5 - (Math.floor(Math.log10(abs)) + 1));
+  else precision = Math.floor(-Math.log10(abs)) + 5;
+  return price.toLocaleString("en-US", {
+    minimumFractionDigits: precision,
+    maximumFractionDigits: precision,
+  });
 }
 
 const ICONS: Record<string, string> = {

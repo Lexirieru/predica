@@ -134,6 +134,28 @@ export default function PriceChart({
     if (fingerprint === lastSeedRef.current) return;
     lastSeedRef.current = fingerprint;
 
+    // Dynamic precision: 5 significant digits (matches Pacifica's display).
+    //   74,755   → 0 decimals
+    //   2347.6   → 1 decimal
+    //   45.183   → 3 decimals
+    //   1.4155   → 4 decimals  (XRP)
+    //   0.034538 → 6 decimals  (DOGE: 1 leading zero + 5 sig)
+    const lastValue = last.value;
+    const precision = (() => {
+      const abs = Math.abs(lastValue);
+      if (abs <= 0) return 2;
+      if (abs >= 1) {
+        const intDigits = Math.floor(Math.log10(abs)) + 1;
+        return Math.max(0, 5 - intDigits);
+      }
+      const leadingZeros = Math.floor(-Math.log10(abs));
+      return leadingZeros + 5;
+    })();
+    const minMove = 1 / Math.pow(10, precision);
+    seriesRef.current.applyOptions({
+      priceFormat: { type: "price", precision, minMove },
+    });
+
     seriesRef.current.setData(data);
 
     // Target price line
