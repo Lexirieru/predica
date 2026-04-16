@@ -1,12 +1,26 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useCallback } from "react";
 import type { PredictionMarket } from "@/lib/types";
 import { useMarketSeries } from "@/hooks/useMarketSeries";
 import BucketPill from "./BucketPill";
 
 interface Props {
   symbol: string;
+  /**
+   * Filter timeline to only show buckets of this duration. Without this,
+   * the BE returns mixed 5m + 15m series for a symbol and the pills jumble
+   * together (e.g. a 15m NEAR card with pills at 5m intervals).
+   */
+  durationMin?: number;
+  /**
+   * The market currently being viewed in the parent card. Used as a fallback
+   * "live" pill when BE's getSeries picks an active market of the other
+   * duration (BE currently doesn't filter by durationMin, so a symbol with
+   * parallel 5m + 15m actives may return the wrong one, which our duration
+   * filter then drops → empty LIVE pill).
+   */
+  currentLive?: PredictionMarket | null;
   /** Number of past buckets to show in the lineup. Default 5. */
   pastLimit?: number;
   /** Number of upcoming buckets to show. Default 4. */
@@ -24,12 +38,31 @@ interface Props {
  */
 export default function SymbolTimeline({
   symbol,
+  durationMin,
+  currentLive,
   pastLimit = 5,
   upcomingLimit = 4,
   selectedBucketId,
   onBucketClick,
 }: Props) {
-  const { series, loading } = useMarketSeries(symbol, pastLimit);
+  // Over-fetch so post-filter we still have enough past buckets to show.
+  const { series: rawSeries, loading } = useMarketSeries(symbol, pastLimit * 3);
+  // Filter BE series to the bucket duration the user is viewing, so the pill
+  // row matches the card (e.g. 15m card → only 15m pills at 15m intervals).
+  // Fall back to `currentLive` (the card's own market) when the filter drops
+  // BE's live pick due to duration mismatch.
+  const series = useMemo(() => {
+    if (!rawSeries) return null;
+    if (durationMin === undefined) return rawSeries;
+    const filteredLive =
+      rawSeries.live?.durationMin === durationMin ? rawSeries.live : null;
+    return {
+      symbol: rawSeries.symbol,
+      past: rawSeries.past.filter((m) => m.durationMin === durationMin),
+      live: filteredLive ?? (currentLive?.status === "active" ? currentLive : null),
+      upcoming: rawSeries.upcoming.filter((m) => m.durationMin === durationMin),
+    };
+  }, [rawSeries, durationMin, currentLive]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Mouse drag-to-scroll for desktop. Mobile users get native pan-x via

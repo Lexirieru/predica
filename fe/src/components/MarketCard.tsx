@@ -7,6 +7,7 @@ import PriceChart from "./PriceChart";
 import LiveTrades from "./LiveTrades";
 import SentimentBar from "./SentimentBar";
 import SymbolTimeline from "./SymbolTimeline";
+import TokenIcon from "./TokenIcon";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import { useNow } from "@/hooks/useNow";
 import { useCandlesFor } from "@/hooks/useCandlesFor";
@@ -30,35 +31,6 @@ function fmt(price: number): string {
   });
 }
 
-const ICONS: Record<string, string> = {
-  BTC: "₿",
-  ETH: "Ξ",
-  SOL: "◎",
-  DOGE: "Ð",
-  XRP: "✕",
-  TAO: "τ",
-  HYPE: "H",
-  ZEC: "Ⓩ",
-  WLFI: "W",
-  ADA: "₳",
-  LINK: "⬡",
-  AVAX: "▲",
-  SUI: "S",
-  ARB: "◆",
-  WIF: "🐕",
-  TRUMP: "T",
-  BNB: "B",
-  LTC: "Ł",
-  TON: "T",
-  AAVE: "A",
-  NEAR: "N",
-  UNI: "U",
-  JUP: "J",
-  WLD: "W",
-  PUMP: "P",
-  BCH: "B",
-  XMR: "M",
-};
 
 interface ActivityItem {
   id: number;
@@ -197,9 +169,7 @@ export default function MarketCard({
     <div className="h-full rounded-2xl bg-[#141414] border border-white/6 overflow-hidden flex flex-col relative">
       {/* Header */}
       <div className="px-5 pt-5 pb-1 flex items-center gap-3 shrink-0">
-        <div className="w-10 h-10 rounded-full bg-linear-to-br from-amber-500 to-orange-600 flex items-center justify-center text-white text-base font-bold shrink-0">
-          {ICONS[market.symbol] || market.symbol[0]}
-        </div>
+        <TokenIcon symbol={market.symbol} size={40} />
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-white text-base font-bold leading-snug">
@@ -285,6 +255,8 @@ export default function MarketCard({
       {/* Symbol timeline — past/live/upcoming rounds for this symbol */}
       <SymbolTimeline
         symbol={market.symbol}
+        durationMin={market.durationMin}
+        currentLive={market.status === "active" ? market : null}
         pastLimit={5}
         upcomingLimit={4}
         selectedBucketId={selectedBucket?.id}
