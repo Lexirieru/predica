@@ -224,7 +224,7 @@ export default function MarketCard({
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h3 className="text-white text-base font-bold leading-snug">
-              {market.symbol} Up or Down - {market.durationMin} Minute{market.durationMin === 1 ? "" : "s"}
+              {market.symbol} Up or Down - 5 Minutes
             </h3>
             {market.totalVoters > 0 && (
               <span className="px-1.5 py-0.5 rounded text-[8px] font-bold uppercase tracking-wider bg-orange-500/20 text-orange-400">
@@ -297,7 +297,6 @@ export default function MarketCard({
       {/* Symbol timeline — past/live/upcoming rounds for this symbol */}
       <SymbolTimeline
         symbol={market.symbol}
-        durationMin={market.durationMin}
         pastLimit={5}
         upcomingLimit={4}
         selectedBucketId={selectedBucket?.id}

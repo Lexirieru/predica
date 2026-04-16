@@ -29,7 +29,7 @@ export default function FeedPage() {
   // clicks the button when they want to move to the next round.
   const activeMarkets = useMemo(() => {
     const now = Date.now();
-    const fives = markets.filter((m) => m.durationMin === 5);
+    const fives = markets;
     const bySymbol = new Map<string, typeof fives[number]>();
     for (const m of fives) {
       const live = m.status === "active" && m.deadline > now;

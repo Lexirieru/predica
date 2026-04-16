@@ -24,7 +24,6 @@ export default function ExplorePage() {
   const router = useRouter();
 
   const filtered = markets
-    .filter((m) => m.durationMin === 5)
     .filter((m) => {
       if (search) {
         const q = search.toLowerCase();

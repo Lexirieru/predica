@@ -1,20 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useCallback } from "react";
+import { useEffect, useRef, useCallback } from "react";
 import type { PredictionMarket } from "@/lib/types";
 import { useMarketSeries } from "@/hooks/useMarketSeries";
 import BucketPill from "./BucketPill";
 
 interface Props {
   symbol: string;
-  /**
-   * Filter timeline to only show buckets matching this duration. Without this
-   * the BE returns mixed 1m/5m/15m series for a symbol — `live` then refers
-   * to a different bucket than the one the user is viewing in the card,
-   * producing a visible mismatch (e.g. 5m card with countdown 1:24 paired
-   * with a "live" pill at 8:30 because BE picked the 15m bucket).
-   */
-  durationMin?: number;
   /** Number of past buckets to show in the lineup. Default 5. */
   pastLimit?: number;
   /** Number of upcoming buckets to show. Default 4. */
@@ -32,26 +24,12 @@ interface Props {
  */
 export default function SymbolTimeline({
   symbol,
-  durationMin,
   pastLimit = 5,
   upcomingLimit = 4,
   selectedBucketId,
   onBucketClick,
 }: Props) {
-  const { series: rawSeries, loading } = useMarketSeries(symbol, pastLimit * 3);
-  // Filter the BE series to a single duration so past/live/upcoming all match
-  // the variant the user is viewing. We over-fetch (pastLimit * 3) above to
-  // compensate for the post-filter reduction.
-  const series = useMemo(() => {
-    if (!rawSeries) return null;
-    if (durationMin === undefined) return rawSeries;
-    return {
-      symbol: rawSeries.symbol,
-      past: rawSeries.past.filter((m) => m.durationMin === durationMin),
-      live: rawSeries.live?.durationMin === durationMin ? rawSeries.live : null,
-      upcoming: rawSeries.upcoming.filter((m) => m.durationMin === durationMin),
-    };
-  }, [rawSeries, durationMin]);
+  const { series, loading } = useMarketSeries(symbol, pastLimit);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Mouse drag-to-scroll for desktop. Mobile users get native pan-x via
