@@ -317,9 +317,16 @@ Biar partner FE tau konteksnya:
 - Pastikan komponen asset/logo handle symbol beragam (icon fallback)
 
 ### Market Duration
-- Semua market **fixed 5 menit** — semua symbol, satu cadence.
-- Field `durationMin` udah **dihapus total** dari API response + BE schema. Jangan re-introduce di FE types.
-- Kalau ada hardcoded copy "1 min" / "15 min" → simplify ke 5 min.
+- Sekarang **2 durasi**: 5 menit dan 15 menit, **paralel** per symbol (tiap symbol punya 5m series + 15m series jalan bareng).
+- Field `durationMin: 5 | 15` ada di BE schema + API response + FE `PredictionMarket` type.
+- `MARKET_DURATIONS` di `be/src/lib/crons.ts` cuma `[5, 15]` — **1m dilarang** (tolak kalau ada PR yang re-introduce).
+- FE Explore page ada chip filter "Any Duration / 5m / 15m" (style sama chip eksisting).
+- MarketCard badge: 15m pake warna hijau `#00b482`, 5m pake abu-abu `white/10`.
+
+### Timezone (UTC)
+- Semua display waktu di FE lock ke **UTC** (`timeZone: "UTC"` di `Intl.DateTimeFormat`).
+- Affected components: `BucketPill`, `profile/page.tsx` (vote + tx rows), `SentimentBar`.
+- Alasan: user base global, deadline ga boleh ambiguous. BE simpan deadline sebagai epoch ms (inherently UTC) — FE cuma butuh format ulang. Kalau nambah komponen baru yang display waktu, **wajib pass `timeZone: "UTC"`**, jangan pake `toLocaleTimeString()` bare.
 
 ### Database
 - Migrate dari SQLite ke **Postgres (Supabase)**

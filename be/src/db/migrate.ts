@@ -110,6 +110,10 @@ async function migrate() {
         END IF;
       END $$;
 
+      -- Round length in minutes. 5 and 15 are the only valid values; default
+      -- 5 lets legacy rows keep their original semantics if any survive a wipe.
+      ALTER TABLE markets ADD COLUMN IF NOT EXISTS duration_min INTEGER NOT NULL DEFAULT 5;
+
       -- Hybrid anti-late-bet payout weight. Default 0 triggers legacy behavior
       -- for pre-existing votes: settlement falls back to amount-weighted split
       -- when any vote in the market has share_weight=0. New rows will always

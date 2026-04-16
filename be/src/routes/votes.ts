@@ -57,6 +57,7 @@ router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => 
       oppositePoolBefore,
       deadline: Number(market.deadline),
       now: Date.now(),
+      durationMin: market.durationMin,
     });
 
     // Atomic section: debit + vote + pool + user stats commit together.
