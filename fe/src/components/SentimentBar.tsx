@@ -32,7 +32,10 @@ export default function SentimentBar({ symbol, fallback }: Props) {
   const summary = data?.summary;
 
   const confidenceDot = confidence === "high" ? "#00b482" : confidence === "medium" ? "#f0a500" : "rgba(255,255,255,0.3)";
-  const sourceLabel = source === "llm" ? "Elfa AI" : source === "engagement" ? "Quick estimate" : "Neutral";
+  // All sentiment data comes from Elfa AI mentions (engagement-weighted score
+  // before LLM summary, LLM-enriched after). Branding stays consistent across
+  // both — confidence dot color signals which stage we're in.
+  const sourceLabel = "Elfa AI";
 
   return (
     <div className="px-5 pb-2 shrink-0">

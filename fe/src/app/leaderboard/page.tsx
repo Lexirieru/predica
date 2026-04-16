@@ -19,7 +19,13 @@ export default function LeaderboardPage() {
   useEffect(() => {
     fetchLeaderboard()
       .then((data: LeaderEntry[]) => {
-        setBoard([...data].sort((a, b) => (b.totalPnl ?? 0) - (a.totalPnl ?? 0)));
+        // Hide negative-PnL wallets — leaderboard celebrates winners only.
+        // Showing losers next to winners turns the "Top predictors" framing
+        // into a wall of red, which is bad vibes for a social product.
+        const winnersOnly = data
+          .filter((e) => (e.totalPnl ?? 0) > 0)
+          .sort((a, b) => (b.totalPnl ?? 0) - (a.totalPnl ?? 0));
+        setBoard(winnersOnly);
       })
       .catch(() => {})
       .finally(() => setLoading(false));
@@ -48,7 +54,7 @@ export default function LeaderboardPage() {
         <div className="space-y-2">
           {board.map((entry, i) => {
             const rank = i + 1;
-            const accuracy = entry.totalVotes > 0
+            const winrate = entry.totalVotes > 0
               ? Math.round((entry.wins / entry.totalVotes) * 100)
               : 0;
 
@@ -80,7 +86,7 @@ export default function LeaderboardPage() {
                     {truncate(entry.wallet)}
                   </p>
                   <p className="text-white/30 text-xs">
-                    {entry.wins}W {entry.losses}L · {accuracy}% accuracy
+                    {entry.wins}W {entry.losses}L · {winrate}% winrate
                   </p>
                 </div>
 

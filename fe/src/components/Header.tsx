@@ -15,7 +15,12 @@ export default function Header() {
             className="rounded-xl"
             priority
           />
-          <span className="text-white font-semibold text-lg tracking-tight">Predica</span>
+          <span
+            className="text-white text-base tracking-[-0.04em]"
+            style={{ fontFamily: "var(--font-brand)", fontWeight: 800 }}
+          >
+            Predica
+          </span>
         </div>
         <div dangerouslySetInnerHTML={{ __html: '<appkit-button size="sm"></appkit-button>' }} />
       </div>
