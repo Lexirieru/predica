@@ -110,10 +110,6 @@ async function migrate() {
         END IF;
       END $$;
 
-      -- Variable market durations (1m/5m/15m). Default 5 keeps existing rows
-      -- behaving as they did before this column existed.
-      ALTER TABLE markets ADD COLUMN IF NOT EXISTS duration_min INTEGER NOT NULL DEFAULT 5;
-
       -- Hybrid anti-late-bet payout weight. Default 0 triggers legacy behavior
       -- for pre-existing votes: settlement falls back to amount-weighted split
       -- when any vote in the market has share_weight=0. New rows will always

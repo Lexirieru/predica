@@ -20,7 +20,7 @@
  *   weight = clamp(1 - (1 - timeFraction) * max(0, 2p - 1), MIN_FLOOR, 1)
  *
  * Where:
- *   timeFraction = (deadline - now) / (durationMin * 60s), clamped to [0, 1]
+ *   timeFraction = (deadline - now) / MARKET_DURATION_MS, clamped to [0, 1]
  *   p            = implied probability of the side being bet, computed from
  *                  the pool state JUST BEFORE this bet is added
  *
@@ -35,6 +35,7 @@
  */
 
 export const MIN_SHARE_WEIGHT = 0.1; // never punish a bet to less than 10% share
+const MARKET_DURATION_MS = 5 * 60_000;
 
 export interface WeightInputs {
   /** Pool size on the side the user is betting, BEFORE this bet. */
@@ -45,22 +46,17 @@ export interface WeightInputs {
   deadline: number;
   /** ms timestamp when the bet is being placed (server clock). */
   now: number;
-  /** Market duration in minutes, e.g. 1 / 5 / 15. */
-  durationMin: number;
 }
 
 /**
  * Compute the share weight multiplier (0..1) for a single bet.
  */
 export function computeShareWeight(input: WeightInputs): number {
-  const { targetPoolBefore, oppositePoolBefore, deadline, now, durationMin } = input;
-
-  // Guard against zero / negative duration.
-  const durationMs = Math.max(1, durationMin * 60_000);
+  const { targetPoolBefore, oppositePoolBefore, deadline, now } = input;
 
   // timeFraction: 1.0 at market open, 0.0 at deadline, clamped.
-  const remaining = Math.max(0, Math.min(durationMs, deadline - now));
-  const timeFraction = remaining / durationMs;
+  const remaining = Math.max(0, Math.min(MARKET_DURATION_MS, deadline - now));
+  const timeFraction = remaining / MARKET_DURATION_MS;
 
   // Implied probability of the side being bet. Empty pool => 0.5 (no crowd yet).
   const totalPool = targetPoolBefore + oppositePoolBefore;

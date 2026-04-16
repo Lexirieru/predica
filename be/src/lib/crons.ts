@@ -372,19 +372,10 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// All markets are fixed 5-minute rounds — one cadence for every symbol.
-// horizonMin = how far ahead we pre-create the bucket lineup.
-type DurationConfig = {
-  durationMin: number;
-  horizonMin: number;
-  symbols: "all" | Set<string>;
-};
-
-const MARKET_DURATIONS: DurationConfig[] = [
-  { durationMin: 5, horizonMin: 60, symbols: "all" },
-];
-
-const MARKET_DURATION_MIN = 5;
+// All markets are fixed 5-minute rounds — one cadence, every symbol.
+export const MARKET_DURATION_MIN = 5;
+const SLOT_MS = MARKET_DURATION_MIN * 60_000;
+const HORIZON_MS = 60 * 60_000; // pre-create 1h of upcoming buckets
 
 /**
  * Seed sentiment for a newly generated market. Two-factor proxy:
@@ -422,18 +413,14 @@ function nextSlotBoundary(now: number, slotMs: number): number {
 async function createBucket(
   symbol: string,
   deadline: number,
-  durationMin: number,
   sentiment: number,
   prices: Record<string, any>,
 ): Promise<boolean> {
-  // Idempotency scoped to (symbol, deadline, durationMin): different duration
-  // buckets may legitimately share a wall-clock deadline (e.g. a 5m and a 15m
-  // both ending at :15), so we don't want the shorter one to block the longer.
-  const existing = await marketRepo.getBySymbolDeadline(symbol, deadline, durationMin);
+  const existing = await marketRepo.getBySymbolDeadline(symbol, deadline);
   if (existing) return false;
 
   const currentPrice = parseFloat(prices[symbol]?.mark || "0");
-  const question = `${symbol} Price: Higher or Lower in ${durationMin} min?`;
+  const question = `${symbol} Price: Higher or Lower in ${MARKET_DURATION_MIN} min?`;
 
   // targetPrice locked to 0 at creation — the activator cron stamps the real
   // price when the bucket becomes active. See startMarketActivatorCron.
@@ -443,7 +430,6 @@ async function createBucket(
     targetPrice: 0,
     currentPrice,
     deadline,
-    durationMin,
     category: "crypto",
     sentiment,
     status: "upcoming",
@@ -454,10 +440,9 @@ async function createBucket(
 }
 
 /**
- * Pre-create upcoming buckets for curated + trending symbols. One series per
- * entry in MARKET_DURATIONS (1m/5m/15m), each with its own horizon. Slots
- * align to clock boundaries so deadlines land on predictable times.
- * Idempotent — re-runs skip existing (symbol, deadline, durationMin) triples.
+ * Pre-create upcoming 5-minute buckets for curated + trending symbols.
+ * Deadlines align to clock boundaries (:00, :05, :10, …). Idempotent —
+ * re-runs skip existing (symbol, deadline) pairs.
  */
 async function ensureUpcomingBuckets() {
   try {
@@ -519,44 +504,30 @@ async function ensureUpcomingBuckets() {
       }
     }
 
-    // Per-duration slot schedule. Outer loop: duration config. Inner loop:
-    // eligible symbols for that duration. Innermost: deadlines up to horizon.
+    // nextSlotBoundary gives the next clock-aligned boundary (e.g. at now=12:02
+    // it returns 12:05). But if now=12:04:30, its open time 12:00 is already in
+    // the past — the activator would flip it live immediately with a ~4min
+    // stub countdown. Push the first deadline forward by one slot whenever the
+    // aligned boundary's open time has passed, so every bucket gets a FULL
+    // 5-min countdown on activation. Cost: up to one missing slot after a
+    // mid-slot boot — acceptable.
     const now = Date.now();
+    let firstDeadline = nextSlotBoundary(now, SLOT_MS);
+    if (firstDeadline - SLOT_MS < now) firstDeadline += SLOT_MS;
+    const lastDeadline = now + HORIZON_MS;
+
     let created = 0;
-
-    for (const cfg of MARKET_DURATIONS) {
-      const slotMs = cfg.durationMin * 60_000;
-      // nextSlotBoundary returns the next clock-aligned boundary, but for a
-      // 15m slot at now=12:07 that's 12:15 — whose "open time" 12:00 is 7min
-      // in the past. The activator would immediately flip that bucket to
-      // active and users would see a market that starts its countdown at 8min
-      // instead of a fresh 15:00. Push the first deadline forward by a full
-      // slot whenever the aligned boundary's open time has already passed,
-      // so every bucket we create has a FULL duration countdown when it
-      // activates. Price: up to one slot of "no market for this duration"
-      // after server boot in the middle of a slot — acceptable trade.
-      let firstDeadline = nextSlotBoundary(now, slotMs);
-      if (firstDeadline - slotMs < now) firstDeadline += slotMs;
-      const lastDeadline = now + cfg.horizonMin * 60_000;
-
-      const eligible =
-        cfg.symbols === "all"
-          ? activeSymbols
-          : new Set(Array.from(activeSymbols).filter((s) => (cfg.symbols as Set<string>).has(s)));
-
-      for (const symbol of eligible) {
-        const mentionGrowth = 0; // seed sentiment uses price only at creation
-        const sentiment = seedSentiment(prices[symbol], mentionGrowth);
-        for (let deadline = firstDeadline; deadline <= lastDeadline; deadline += slotMs) {
-          const ok = await createBucket(symbol, deadline, cfg.durationMin, sentiment, prices);
-          if (ok) created++;
-        }
+    for (const symbol of activeSymbols) {
+      const sentiment = seedSentiment(prices[symbol]);
+      for (let deadline = firstDeadline; deadline <= lastDeadline; deadline += SLOT_MS) {
+        const ok = await createBucket(symbol, deadline, sentiment, prices);
+        if (ok) created++;
       }
     }
 
     if (created > 0) {
       console.log(
-        `[Buckets] Pre-created ${created} upcoming buckets across ${activeSymbols.size} symbols (durations: ${MARKET_DURATIONS.map((d) => d.durationMin + "m").join("/")}).`,
+        `[Buckets] Pre-created ${created} upcoming 5m buckets across ${activeSymbols.size} symbols.`,
       );
       syncCandleSubscriptions(Array.from(activeSymbols));
     }
@@ -566,9 +537,9 @@ async function ensureUpcomingBuckets() {
 }
 
 /**
- * Every 10s: transition upcoming → active when the bucket's open time (deadline
- * minus duration) has arrived. Stamps targetPrice = current mark price at the
- * moment of activation so users vote against a fair, real-time reference.
+ * Every 10s: transition upcoming → active when the bucket's open time
+ * (deadline minus 5min) has arrived. Stamps targetPrice = current mark price
+ * at the moment of activation so users vote against a fair, real-time reference.
  */
 export function startMarketActivatorCron() {
   cron.schedule("*/10 * * * * *", async () => {
@@ -585,8 +556,7 @@ export function startMarketActivatorCron() {
 
       for (const m of due) {
         const mark = prices[m.symbol.toUpperCase()];
-        const slotMs = (m.durationMin ?? MARKET_DURATION_MIN) * 60_000;
-        const openedAt = Number(m.deadline) - slotMs;
+        const openedAt = Number(m.deadline) - SLOT_MS;
         const stale = Date.now() - openedAt > 60_000;
 
         if (!mark || mark <= 0) {

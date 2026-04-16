@@ -19,7 +19,6 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 0,
         deadline: DEADLINE,
         now: at(0), // zero time remaining
-        durationMin: DURATION_MIN,
       });
       expect(w).toBe(1);
     });
@@ -31,8 +30,7 @@ describe("computeShareWeight", () => {
           oppositePoolBefore: 100,
           deadline: DEADLINE,
           now: at(frac),
-          durationMin: DURATION_MIN,
-        });
+          });
         expect(w).toBe(1);
       }
     });
@@ -45,8 +43,7 @@ describe("computeShareWeight", () => {
           oppositePoolBefore: 90,
           deadline: DEADLINE,
           now: at(frac),
-          durationMin: DURATION_MIN,
-        });
+          });
         expect(w).toBe(1);
       }
     });
@@ -58,7 +55,6 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 10,
         deadline: DEADLINE,
         now: at(1),
-        durationMin: DURATION_MIN,
       });
       expect(w).toBe(1);
     });
@@ -72,7 +68,6 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 25,
         deadline: DEADLINE,
         now: at(0),
-        durationMin: DURATION_MIN,
       });
       expect(w).toBeCloseTo(0.5, 4);
     });
@@ -84,7 +79,6 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 25,
         deadline: DEADLINE,
         now: at(0.5),
-        durationMin: DURATION_MIN,
       });
       expect(w).toBeCloseTo(0.75, 4);
     });
@@ -97,7 +91,6 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 10,
         deadline: DEADLINE,
         now: at(0.1),
-        durationMin: DURATION_MIN,
       });
       expect(w).toBeCloseTo(0.118, 3);
       expect(w).toBeGreaterThan(MIN_SHARE_WEIGHT);
@@ -110,7 +103,6 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 0,
         deadline: DEADLINE,
         now: at(0),
-        durationMin: DURATION_MIN,
       });
       expect(w).toBe(MIN_SHARE_WEIGHT);
     });
@@ -123,7 +115,6 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 25,
         deadline: DEADLINE,
         now: DEADLINE + 60_000, // 1 min past deadline
-        durationMin: DURATION_MIN,
       });
       // Same as `at(0)` → 0.5
       expect(w).toBeCloseTo(0.5, 4);
@@ -135,31 +126,9 @@ describe("computeShareWeight", () => {
         oppositePoolBefore: 10,
         deadline: DEADLINE,
         now: DEADLINE - durationMs * 2, // way before market existed
-        durationMin: DURATION_MIN,
       });
       // timeFraction = 1 → weight = 1
       expect(w).toBe(1);
-    });
-
-    it("different duration values work (1m and 15m)", () => {
-      // 1m market, 75-25, halfway → weight 0.75 (duration-independent shape)
-      const w1 = computeShareWeight({
-        targetPoolBefore: 75,
-        oppositePoolBefore: 25,
-        deadline: DEADLINE,
-        now: DEADLINE - 30_000, // 30s of a 1m market = halfway
-        durationMin: 1,
-      });
-      expect(w1).toBeCloseTo(0.75, 4);
-
-      const w15 = computeShareWeight({
-        targetPoolBefore: 75,
-        oppositePoolBefore: 25,
-        deadline: DEADLINE,
-        now: DEADLINE - 7.5 * 60_000, // halfway
-        durationMin: 15,
-      });
-      expect(w15).toBeCloseTo(0.75, 4);
     });
 
     it("weight is monotonically non-increasing in `now` for a fixed favorite", () => {
@@ -168,7 +137,6 @@ describe("computeShareWeight", () => {
         targetPoolBefore: 80,
         oppositePoolBefore: 20,
         deadline: DEADLINE,
-        durationMin: DURATION_MIN,
       };
       const samples = [1, 0.8, 0.5, 0.25, 0.1, 0].map((f) =>
         computeShareWeight({ ...common, now: at(f) }),
@@ -200,7 +168,6 @@ describe("realistic settlement scenario", () => {
         oppositePoolBefore: 0,
         deadline: DEADLINE,
         now: at(1),
-        durationMin: DURATION_MIN,
       }),
       label: "early" as const,
     }));
@@ -213,7 +180,6 @@ describe("realistic settlement scenario", () => {
         oppositePoolBefore: 50,
         deadline: DEADLINE,
         now: at(0.05),
-        durationMin: DURATION_MIN,
       }),
       label: "whale" as const,
     };

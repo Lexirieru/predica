@@ -22,7 +22,7 @@ export function useMarkets() {
   // Initial load — metadata only. Candles are fetched on-demand by the
   // visible card via useCandlesFor (useCandleStore), which dedupes and caches
   // per symbol. Previously we Promise.all'd candle fetches for every market
-  // which ballooned TTI with 1m/5m/15m buckets in the feed.
+  // which ballooned TTI once the feed had many buckets.
   const load = useCallback(async () => {
     try {
       const data = await fetchMarkets();
@@ -126,7 +126,6 @@ export function useMarkets() {
         targetPrice: Number(raw.targetPrice || raw.target_price || 0),
         currentPrice: price,
         deadline: Number(raw.deadline || 0),
-        durationMin: Number(raw.durationMin ?? raw.duration_min ?? 5),
         category: (raw.category as PredictionMarket["category"]) || "crypto",
         yesPool: Number(raw.yesPool || raw.yes_pool || 0),
         noPool: Number(raw.noPool || raw.no_pool || 0),

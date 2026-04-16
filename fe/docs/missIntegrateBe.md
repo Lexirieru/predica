@@ -318,6 +318,7 @@ Biar partner FE tau konteksnya:
 
 ### Market Duration
 - Semua market **fixed 5 menit** — semua symbol, satu cadence.
+- Field `durationMin` udah **dihapus total** dari API response + BE schema. Jangan re-introduce di FE types.
 - Kalau ada hardcoded copy "1 min" / "15 min" → simplify ke 5 min.
 
 ### Database

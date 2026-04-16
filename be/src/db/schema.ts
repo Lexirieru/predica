@@ -10,7 +10,6 @@ export const markets = pgTable("markets", {
   targetPrice: real("target_price").notNull(),
   currentPrice: real("current_price").notNull().default(0),
   deadline: bigint("deadline", { mode: "number" }).notNull(),
-  durationMin: integer("duration_min").notNull().default(5),
   category: text("category").notNull().default("crypto"),
   yesPool: real("yes_pool").notNull().default(0),
   noPool: real("no_pool").notNull().default(0),
