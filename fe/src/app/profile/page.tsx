@@ -1,13 +1,8 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useAppKitAccount, useAppKit } from "@reown/appkit/react";
-import {
-  fetchUserVotes,
-  fetchTransactions,
-  fetchPortfolioStats,
-  type PortfolioStats,
-} from "@/lib/api";
+import { fetchUserVotes, fetchTransactions } from "@/lib/api";
 import { useStore } from "@/store/useStore";
 import { useWebSocket } from "@/hooks/useWebSocket";
 import dynamic from "next/dynamic";
@@ -15,7 +10,6 @@ import dynamic from "next/dynamic";
 // those bytes until the user actually opens one of the modals.
 const DepositModal = dynamic(() => import("@/components/DepositModal"), { ssr: false });
 const WithdrawModal = dynamic(() => import("@/components/WithdrawModal"), { ssr: false });
-import PortfolioStatsCard from "@/components/PortfolioStats";
 import PnlChart from "@/components/PnlChart";
 import NotificationToggle from "@/components/NotificationToggle";
 
@@ -54,34 +48,51 @@ export default function ProfilePage() {
   const balance = useStore((s) => s.balance);
   const [votes, setVotes] = useState<VoteEntry[]>([]);
   const [txs, setTxs] = useState<TxEntry[]>([]);
-  const [stats, setStats] = useState<PortfolioStats | null>(null);
   const [loading, setLoading] = useState(false);
   const [depositOpen, setDepositOpen] = useState(false);
   const [withdrawOpen, setWithdrawOpen] = useState(false);
   const [tab, setTab] = useState<Tab>("votes");
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async (showSpinner = false) => {
     if (!wallet) return;
-    setLoading(true);
+    if (showSpinner) setLoading(true);
     try {
-      const [votesData, txData, statsData] = await Promise.all([
+      const [votesData, txData] = await Promise.all([
         fetchUserVotes(wallet),
         fetchTransactions(wallet),
-        fetchPortfolioStats(wallet),
       ]);
       setVotes(votesData);
       setTxs(txData);
-      setStats(statsData);
     } catch {}
-    setLoading(false);
+    if (showSpinner) setLoading(false);
   }, [wallet]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  // Initial load — show spinner. WS-triggered reloads do NOT show spinner to
+  // avoid flicker when many votes settle at once.
+  useEffect(() => { loadData(true); }, [loadData]);
 
-  useWebSocket("MARKET_RESOLVED", () => { loadData(); });
+  // Debounced reload for WS events. At 5min boundary 30+ markets settle
+  // simultaneously, each triggering MARKET_RESOLVED. Without debouncing the
+  // page would fire 30+ concurrent /vote+/transactions fetches in one second,
+  // causing the "flicker" loading spinner spam. Coalesce into one fetch.
+  const reloadTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const scheduleReload = useCallback(() => {
+    if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    reloadTimerRef.current = setTimeout(() => {
+      loadData();
+      reloadTimerRef.current = null;
+    }, 500);
+  }, [loadData]);
+  useEffect(() => {
+    return () => {
+      if (reloadTimerRef.current) clearTimeout(reloadTimerRef.current);
+    };
+  }, []);
+
+  useWebSocket("MARKET_RESOLVED", scheduleReload);
   useWebSocket("NEW_VOTE", (data) => {
     const vote = data as { wallet: string };
-    if (vote.wallet === wallet) loadData();
+    if (vote.wallet === wallet) scheduleReload();
   });
 
   const truncate = (a: string) => `${a.slice(0, 6)}...${a.slice(-4)}`;
@@ -89,7 +100,7 @@ export default function ProfilePage() {
   if (!authenticated) {
     return (
       <div className="h-full flex flex-col items-center justify-center px-6">
-        <div className="w-16 h-16 rounded-2xl bg-gradient-to-br from-[var(--color-yes)] to-cyan-400 flex items-center justify-center mb-4 shadow-[0_0_24px_var(--color-yes-glow)]">
+        <div className="w-16 h-16 rounded-2xl bg-linear-to-br from-[var(--color-yes)] to-cyan-400 flex items-center justify-center mb-4 shadow-[0_0_24px_var(--color-yes-glow)]">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
             <circle cx="12" cy="8" r="4" stroke="#000" strokeWidth="2" />
             <path d="M20 21c0-3.314-3.582-6-8-6s-8 2.686-8 6" stroke="#000" strokeWidth="2" strokeLinecap="round" />
@@ -97,7 +108,7 @@ export default function ProfilePage() {
         </div>
         <h2 className="text-white text-lg font-bold mb-1">Connect Wallet</h2>
         <p className="text-white/30 text-sm text-center mb-5">Connect to deposit USDP and start predicting</p>
-        <button onClick={() => openAppKit()} className="px-6 py-3 rounded-2xl bg-gradient-to-r from-[var(--color-yes)] to-cyan-400 text-black font-semibold text-sm">
+        <button onClick={() => openAppKit()} className="px-6 py-3 rounded-2xl bg-linear-to-r from-[var(--color-yes)] to-cyan-400 text-black font-semibold text-sm">
           Connect Wallet
         </button>
       </div>
@@ -107,18 +118,13 @@ export default function ProfilePage() {
   return (
     <div className="h-full overflow-y-auto px-4 py-4">
       {/* Header */}
-      <div className="flex items-center justify-between mb-4">
-        <div>
-          <h1 className="text-xl font-bold text-white">Profile</h1>
-          <p className="text-white/30 text-sm font-mono">{wallet ? truncate(wallet) : ""}</p>
-        </div>
-        <button onClick={() => openAppKit()} className="px-3 py-1.5 rounded-full bg-white/[0.05] text-white/40 text-xs border border-white/[0.08]">
-          Wallet
-        </button>
+      <div className="mb-4">
+        <h1 className="text-xl font-bold text-white">Profile</h1>
+        <p className="text-white/30 text-sm font-mono">{wallet ? truncate(wallet) : ""}</p>
       </div>
 
       {/* Balance card */}
-      <div className="p-4 rounded-2xl bg-gradient-to-br from-[#00D1A9]/10 to-transparent border border-[#00D1A9]/15 mb-4">
+      <div className="p-4 rounded-2xl bg-linear-to-br from-[#00D1A9]/10 to-transparent border border-[#00D1A9]/15 mb-4">
         <p className="text-white/30 text-[10px] uppercase tracking-widest mb-1">Predica Balance</p>
         <p className="text-white text-3xl font-bold tabular-nums mb-3">${balance.toFixed(2)} <span className="text-white/30 text-sm">USDP</span></p>
         <div className="flex gap-2">
@@ -128,7 +134,7 @@ export default function ProfilePage() {
             Deposit
           </button>
           <button onClick={() => setWithdrawOpen(true)} disabled={balance <= 0}
-            className="flex-1 h-10 rounded-xl font-semibold text-sm bg-white/[0.06] text-white/70 border border-white/[0.1] disabled:opacity-30 active:scale-[0.97] transition-transform">
+            className="flex-1 h-10 rounded-xl font-semibold text-sm bg-white/6 text-white/70 border border-white/1 disabled:opacity-30 active:scale-[0.97] transition-transform">
             Withdraw
           </button>
         </div>
@@ -138,9 +144,6 @@ export default function ProfilePage() {
       <div className="mb-4">
         <NotificationToggle />
       </div>
-
-      {/* Portfolio stats summary */}
-      <PortfolioStatsCard stats={stats} loading={loading && !stats} />
 
       {/* PnL chart with range filter */}
       {votes.length > 0 && <PnlChart votes={votes} />}
@@ -171,7 +174,7 @@ export default function ProfilePage() {
               const won = vote.status === "won";
               const lost = vote.status === "lost";
               return (
-              <div key={vote.id} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div key={vote.id} className="flex items-center justify-between p-3 rounded-xl bg-white/2 border border-white/6">
                 <div className="flex items-center gap-2">
                   <div className="w-8 h-8 rounded-full flex items-center justify-center text-[10px] font-bold"
                     style={{
@@ -213,7 +216,7 @@ export default function ProfilePage() {
         ) : (
           <div className="space-y-2">
             {txs.map((tx) => (
-              <div key={tx.id} className="flex items-center justify-between p-3 rounded-xl bg-white/[0.02] border border-white/[0.06]">
+              <div key={tx.id} className="flex items-center justify-between p-3 rounded-xl bg-white/2 border border-white/6">
                 <div className="flex items-center gap-2">
                   <div className={`w-6 h-6 rounded-full flex items-center justify-center text-[10px] font-bold ${
                     tx.type === "deposit" ? "bg-[#00b482]/15 text-[#00b482]" :

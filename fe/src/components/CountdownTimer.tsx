@@ -35,7 +35,7 @@ export default function CountdownTimer({ deadline }: { deadline: number }) {
         isExpired
           ? "text-white/30"
           : isUrgent
-            ? "text-[var(--color-no)]"
+            ? "text-(--color-no)"
             : "text-white/50"
       }`}
       style={isUrgent ? { animation: "pulse-glow 2s ease-in-out infinite" } : undefined}

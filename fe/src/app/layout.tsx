@@ -31,6 +31,11 @@ export const metadata: Metadata = {
   title: "Predica — Predict. Vote. Earn.",
   description:
     "TikTok-style prediction markets on Pacifica. Vote on crypto price predictions and earn rewards.",
+  icons: {
+    icon: "/predica_logo.png",
+    shortcut: "/predica_logo.png",
+    apple: "/predica_logo.png",
+  },
 };
 
 export const viewport: Viewport = {

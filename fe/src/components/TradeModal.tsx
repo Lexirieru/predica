@@ -7,7 +7,7 @@ import { placeVote } from "@/lib/api";
 import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 import type { Provider } from "@reown/appkit-adapter-solana";
 import { signAuthHeaders } from "@/lib/signAuth";
-import { computeShareWeight, describeWeight } from "@/lib/payoutWeight";
+import { computeShareWeight } from "@/lib/payoutWeight";
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
 const SWIPE_THRESHOLD = 80;
@@ -58,7 +58,6 @@ export default function TradeModal() {
         now: Date.now(),
       })
     : 1;
-  const weightInfo = describeWeight(previewWeight);
 
   const handleDragStart = () => { dragStartTime.current = Date.now(); };
   const handleDragEnd = (_: MouseEvent | TouchEvent | PointerEvent, info: PanInfo) => {
@@ -152,51 +151,86 @@ export default function TradeModal() {
                   <h3 className="text-white text-lg font-bold">Buy <span style={{ color: colorHex }}>{label}</span></h3>
                   <p className="text-white/25 text-xs">{market.symbol} · Internal Balance</p>
                 </div>
-                <button onClick={closeTradeModal} className="w-10 h-10 rounded-full bg-white/[0.05] flex items-center justify-center text-white/40">
+                <button onClick={closeTradeModal} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40">
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 </button>
               </div>
 
-              <div className="text-center mb-1 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div className="text-center mb-1 py-2 rounded-xl bg-white/3 border border-white/6">
                 <p className="text-white/25 text-[10px] uppercase tracking-wider">Your Balance</p>
                 <p className="text-white text-lg font-bold tabular-nums">${balance.toFixed(2)} <span className="text-white/30 text-xs">USDP</span></p>
               </div>
 
               <div className="text-center mb-3 mt-3">
                 <p className="text-white/30 text-xs mb-1">Wager</p>
-                <p className="text-white text-4xl font-bold tabular-nums">${amount}</p>
+                <div className="flex items-center justify-center gap-1">
+                  <span className="text-white text-4xl font-bold">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={amount === 0 ? "" : amount}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^0-9.]/g, "");
+                      const n = parseFloat(v);
+                      setAmount(isNaN(n) ? 0 : n);
+                    }}
+                    placeholder="0"
+                    className="bg-transparent text-white text-4xl font-bold tabular-nums text-center outline-none border-b border-transparent focus:border-white/15 transition-colors w-32 placeholder:text-white/20"
+                  />
+                </div>
               </div>
 
               <div className="flex gap-2 justify-center mb-3">
                 {QUICK_AMOUNTS.map((val) => (
                   <button key={val} onClick={() => setAmount((p) => p + val)}
-                    className="px-4 py-2 rounded-xl bg-white/[0.06] border border-white/[0.1] text-white/70 text-sm font-semibold hover:bg-white/[0.1] transition-colors"
+                    className="px-4 py-2 rounded-xl bg-white/6 border border-white/1 text-white/70 text-sm font-semibold hover:bg-white/1 transition-colors"
                   >+${val}</button>
                 ))}
-                <button onClick={() => setAmount(0)} className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/30 text-xs">Clear</button>
+                <button onClick={() => setAmount(0)} className="px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-white/30 text-xs">Clear</button>
               </div>
 
-              {/* Share weight preview — shows late-bet penalty before user commits */}
-              {amount > 0 && previewWeight < 1 && (
-                <div
-                  className="mb-3 px-3 py-2 rounded-xl border flex items-center gap-2"
-                  style={{ borderColor: `${weightInfo.color}35`, backgroundColor: `${weightInfo.color}0d` }}
-                >
-                  <div className="text-xs flex-1">
-                    <p className="font-semibold" style={{ color: weightInfo.color }}>
-                      {weightInfo.label}
-                    </p>
-                    <p className="text-white/40 text-[10px] mt-0.5">
-                      Effective stake for payout split: ${(amount * previewWeight).toFixed(2)} (loss on settlement is still full ${amount.toFixed(2)})
-                    </p>
+              {/* Polymarket-style "To win" payout preview. Pool-based payout:
+                  user's effective stake / (winning side pool + effective stake)
+                  × total prize pool (yesPool + noPool + user's bet).
+                  Weight < 1 lowers effective stake for late bets, matching BE
+                  settlement math. */}
+              {amount > 0 && market && (() => {
+                const sidePool = tradeModalSide === "yes" ? market.yesPool : market.noPool;
+                const effectiveStake = amount * previewWeight;
+                const totalPrizePool = market.yesPool + market.noPool + amount;
+                const userShare = effectiveStake / (sidePool + effectiveStake);
+                const payout = userShare * totalPrizePool;
+                const profit = payout - amount;
+                return (
+                  <div className="mb-3 px-4 py-3 rounded-xl bg-white/3 border border-white/6 flex items-center justify-between">
+                    <div>
+                      <p className="text-white/60 text-xs font-semibold flex items-center gap-1">
+                        To win <span>💵</span>
+                      </p>
+                      {previewWeight < 1 && (
+                        <p className="text-white/30 text-[10px] mt-0.5">
+                          Late bet · {Math.round(previewWeight * 100)}% effective stake
+                        </p>
+                      )}
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[var(--color-yes)] text-2xl font-bold tabular-nums">
+                        ${payout.toFixed(2)}
+                      </p>
+                      {profit > 0 && (
+                        <p className="text-white/40 text-[10px] tabular-nums">
+                          +${profit.toFixed(2)} profit
+                        </p>
+                      )}
+                    </div>
                   </div>
-                </div>
-              )}
+                );
+              })()}
 
               {status && (
-                <p className={`text-center text-xs mb-3 ${status.includes("nsufficient") || status.includes("ail") ? "text-[var(--color-no)]" : status.includes("placed") ? "text-[var(--color-yes)]" : "text-white/40"}`}>
+                <p className={`text-center text-xs mb-3 ${status.includes("nsufficient") || status.includes("ail") ? "text-(--color-no)" : status.includes("placed") ? "text-(--color-yes)" : "text-white/40"}`}>
                   {status}
                 </p>
               )}

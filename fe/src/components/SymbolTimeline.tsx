@@ -99,7 +99,7 @@ export default function SymbolTimeline({
       <div className="px-5 py-2">
         <div className="flex gap-1.5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 w-[88px] rounded-lg bg-white/[0.03] animate-pulse shrink-0" />
+            <div key={i} className="h-10 w-[88px] rounded-lg bg-white/3 animate-pulse shrink-0" />
           ))}
         </div>
       </div>
@@ -114,7 +114,17 @@ export default function SymbolTimeline({
   if (!hasAny) return null;
 
   return (
-    <div className="px-5 py-2">
+    // Wrapper has relative + mask to fade out overflowing pills on the right
+    // edge. Without it, the last pill gets cut in half at the card border.
+    <div
+      className="px-5 py-2 relative"
+      style={{
+        maskImage:
+          "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+        WebkitMaskImage:
+          "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+      }}
+    >
       {selectedBucketId && (
         <div className="flex justify-end mb-1.5">
           <button

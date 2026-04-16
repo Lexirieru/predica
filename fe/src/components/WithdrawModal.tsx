@@ -75,7 +75,7 @@ export default function WithdrawModal({ open, onClose, onSuccess, wallet, balanc
             animate={{ transform: "translateY(0%) scale(1)", opacity: 1 }}
             exit={{ transform: "translateY(100%) scale(0.98)", opacity: 0 }}
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-[70] rounded-t-[28px] border-t border-white/[0.08] overflow-hidden"
+            className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-[70] rounded-t-[28px] border-t border-white/8 overflow-hidden"
             style={{ background: "linear-gradient(180deg, #151515 0%, #111 100%)" }}
           >
             <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-white/15" /></div>
@@ -85,42 +85,59 @@ export default function WithdrawModal({ open, onClose, onSuccess, wallet, balanc
                   <h3 className="text-white text-lg font-bold">Withdraw USDP</h3>
                   <p className="text-white/25 text-xs">Send to your Solana wallet</p>
                 </div>
-                <button onClick={onClose} className="w-10 h-10 rounded-full bg-white/[0.05] flex items-center justify-center text-white/40">
+                <button onClick={onClose} className="w-10 h-10 rounded-full bg-white/5 flex items-center justify-center text-white/40">
                   <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
                     <path d="M1 1l12 12M13 1L1 13" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
                   </svg>
                 </button>
               </div>
 
-              <div className="text-center mb-1 py-2 rounded-xl bg-white/[0.03] border border-white/[0.06]">
+              <div className="text-center mb-1 py-2 rounded-xl bg-white/3 border border-white/6">
                 <p className="text-white/25 text-[10px] uppercase tracking-wider">Available</p>
                 <p className="text-white text-lg font-bold tabular-nums">${balance.toFixed(2)} <span className="text-white/30 text-xs">USDP</span></p>
               </div>
 
               <div className="text-center mb-3 mt-3">
                 <p className="text-white/30 text-xs mb-1">Withdraw Amount</p>
-                <p className="text-white text-4xl font-bold tabular-nums">${amount}</p>
+                <div className="flex items-center justify-center gap-1">
+                  <span className="text-white text-4xl font-bold">$</span>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={amount === 0 ? "" : amount}
+                    onChange={(e) => {
+                      const v = e.target.value.replace(/[^0-9.]/g, "");
+                      const n = parseFloat(v);
+                      setAmount(isNaN(n) ? 0 : Math.min(n, balance));
+                    }}
+                    placeholder="0"
+                    className="bg-transparent text-white text-4xl font-bold tabular-nums text-center outline-none border-b border-transparent focus:border-white/15 transition-colors w-32 placeholder:text-white/20"
+                  />
+                </div>
+                {amount > balance && (
+                  <p className="text-(--color-no) text-[10px] mt-1">Exceeds your balance</p>
+                )}
               </div>
 
               <div className="flex gap-2 justify-center mb-4">
                 {QUICK_AMOUNTS.map((val) => (
                   <button key={val} onClick={() => setAmount((p) => Math.min(p + val, balance))}
-                    className="px-4 py-2 rounded-xl bg-white/[0.06] border border-white/[0.1] text-white/70 text-sm font-semibold hover:bg-white/[0.1] transition-colors"
+                    className="px-4 py-2 rounded-xl bg-white/6 border border-white/1 text-white/70 text-sm font-semibold hover:bg-white/1 transition-colors"
                   >+${val}</button>
                 ))}
                 <button onClick={() => setAmount(Math.floor(balance))}
-                  className="px-3 py-2 rounded-xl bg-white/[0.04] border border-white/[0.08] text-white/30 text-xs"
+                  className="px-3 py-2 rounded-xl bg-white/4 border border-white/8 text-white/30 text-xs"
                 >Max</button>
               </div>
 
               {status && (
-                <p className={`text-center text-xs mb-2 ${status.includes("ail") ? "text-[var(--color-no)]" : status.includes("ithdrawn") ? "text-[var(--color-yes)]" : "text-white/40"}`}>
+                <p className={`text-center text-xs mb-2 ${status.includes("ail") ? "text-(--color-no)" : status.includes("ithdrawn") ? "text-(--color-yes)" : "text-white/40"}`}>
                   {status}
                 </p>
               )}
               {txLink && (
                 <a href={txLink} target="_blank" rel="noopener noreferrer"
-                  className="block text-center text-[10px] text-[var(--color-yes)] underline mb-3">
+                  className="block text-center text-[10px] text-(--color-yes) underline mb-3">
                   View on Solana Explorer →
                 </a>
               )}

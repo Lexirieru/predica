@@ -24,21 +24,31 @@ const variants = {
   }),
 };
 
-export default function SwipeStack({ markets }: { markets: PredictionMarket[] }) {
+export default function SwipeStack({
+  markets,
+  onAdvance,
+}: {
+  markets: PredictionMarket[];
+  /** Dismiss a settled bucket so the feed advances to the next live one. */
+  onAdvance?: (marketId: string) => void;
+}) {
   const currentMarketIndex = useStore((s) => s.currentMarketIndex);
   const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
   const [direction, setDirection] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   // Fix from fe-swipenit: lock transitions to prevent rapid-fire from trackpad
   const canTransition = useRef(true);
-  const currentMarketIdRef = useRef<string | null>(null);
+  // Track by symbol so the user stays on the same symbol when its bucket
+  // rotates (settled → next active 5m bucket has a different market.id but
+  // same symbol). Tracking by id alone would cause the index to jump to 0
+  // every 5min when the bucket rotates.
+  const currentSymbolRef = useRef<string | null>(null);
 
-  // Stabilize: when markets array changes, keep showing the same market
   useEffect(() => {
     if (markets.length === 0) return;
-    const currentId = currentMarketIdRef.current;
-    if (currentId) {
-      const newIdx = markets.findIndex((m) => m.id === currentId);
+    const currentSym = currentSymbolRef.current;
+    if (currentSym) {
+      const newIdx = markets.findIndex((m) => m.symbol === currentSym);
       if (newIdx >= 0 && newIdx !== currentMarketIndex) {
         setCurrentMarketIndex(newIdx);
       }
@@ -123,7 +133,7 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
 
   const safeIndex = currentMarketIndex < markets.length ? currentMarketIndex : 0;
   const market = markets[safeIndex];
-  currentMarketIdRef.current = market.id;
+  currentSymbolRef.current = market.symbol;
 
   return (
     <div
@@ -141,7 +151,11 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
         }}
       >
         <motion.div
-          key={market.id}
+          // Key by symbol (not market.id) so bucket rotation within the same
+          // symbol (settled 8:30 → active 8:35) doesn't retrigger the swipe
+          // enter/exit animation. Swiping to a different symbol still animates
+          // because the key changes.
+          key={market.symbol}
           custom={direction}
           variants={variants}
           initial="enter"
@@ -157,7 +171,7 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
           onDragEnd={handleDragEnd}
           className="absolute inset-0 p-3 touch-pan-x"
         >
-          <MarketCard market={market} />
+          <MarketCard market={market} onAdvance={onAdvance} />
         </motion.div>
       </AnimatePresence>
     </div>

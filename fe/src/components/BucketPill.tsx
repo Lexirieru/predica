@@ -31,7 +31,7 @@ function BucketPillInner({ market, variant, onClick, active }: Props) {
     return (
       <button
         onClick={onClick}
-        className="shrink-0 px-3 py-1.5 rounded-full bg-white/[0.06] border border-white/[0.1] flex items-center gap-1.5 hover:bg-white/[0.1] transition-colors"
+        className="shrink-0 px-3 py-1.5 rounded-full bg-white/6 border border-white/1 flex items-center gap-1.5 hover:bg-white/1 transition-colors"
       >
         <span className="relative flex h-1.5 w-1.5">
           <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-[#dc3246] opacity-75" />
@@ -49,7 +49,7 @@ function BucketPillInner({ market, variant, onClick, active }: Props) {
         className={`shrink-0 px-3 py-1.5 rounded-lg transition-colors ${
           active
             ? "bg-white text-black"
-            : "bg-white/[0.06] border border-white/[0.08] text-white/70 hover:bg-white/[0.1]"
+            : "bg-white/6 border border-white/8 text-white/70 hover:bg-white/1"
         }`}
       >
         <span className="text-xs font-medium tabular-nums">{endLabel}</span>
@@ -63,7 +63,7 @@ function BucketPillInner({ market, variant, onClick, active }: Props) {
   return (
     <button
       onClick={onClick}
-      className="shrink-0 px-3 py-1.5 rounded-lg bg-white/[0.03] border border-dashed border-white/10 text-white/35 hover:text-white/50 transition-colors"
+      className="shrink-0 px-3 py-1.5 rounded-lg bg-white/3 border border-dashed border-white/10 text-white/35 hover:text-white/50 transition-colors"
       title={opensInMin > 0 ? `Opens in ${opensInMin}m` : "Opening soon"}
     >
       <span className="text-xs font-medium tabular-nums">{endLabel}</span>

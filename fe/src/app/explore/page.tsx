@@ -69,7 +69,7 @@ export default function ExplorePage() {
           placeholder="Search by symbol or question..."
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          className="w-full bg-white/[0.04] border border-white/[0.08] rounded-xl min-h-[40px] py-2 pl-9 pr-4 text-white text-sm placeholder:text-white/20 outline-none focus:border-white/15 transition-colors"
+          className="w-full bg-white/4 border border-white/8 rounded-xl min-h-[40px] py-2 pl-9 pr-4 text-white text-sm placeholder:text-white/20 outline-none focus:border-white/15 transition-colors"
         />
       </div>
 
@@ -114,7 +114,7 @@ export default function ExplorePage() {
               <button
                 key={market.id}
                 onClick={() => handleCardClick(market)}
-                className="w-full text-left p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] hover:bg-white/[0.04] transition-colors duration-150 block"
+                className="w-full text-left p-4 rounded-2xl bg-white/2 border border-white/6 hover:bg-white/4 transition-colors duration-150 block"
               >
                 {/* Top row */}
                 <div className="flex items-start justify-between gap-2 mb-2">

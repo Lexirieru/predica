@@ -10,11 +10,11 @@ export default function OddsBar({
   return (
     <div className="w-full" role="meter" aria-label={`Yes ${yesPercent}%, No ${noPercent}%`}>
       <div className="flex justify-between text-xs font-semibold mb-2">
-        <span className="text-[var(--color-yes)]">Yes {yesPercent}%</span>
-        <span className="text-[var(--color-no)]">No {noPercent}%</span>
+        <span className="text-(--color-yes)">Yes {yesPercent}%</span>
+        <span className="text-(--color-no)">No {noPercent}%</span>
       </div>
       {/* Emil: Specify exact properties, not transition: all */}
-      <div className="flex h-2 rounded-full overflow-hidden gap-[2px] bg-white/[0.03]">
+      <div className="flex h-2 rounded-full overflow-hidden gap-[2px] bg-white/3">
         <div
           className="rounded-full relative overflow-hidden"
           style={{
