@@ -1,17 +1,30 @@
+export interface Candle {
+  time: number; // unix seconds (lightweight-charts uses seconds)
+  open: number;
+  high: number;
+  low: number;
+  close: number;
+}
+
 export interface PredictionMarket {
   id: string;
   symbol: string;
   question: string;
   targetPrice: number;
   currentPrice: number;
-  deadline: number; // unix timestamp ms
+  deadline: number; // unix timestamp ms (UTC by definition)
+  durationMin: 5 | 15; // round length in minutes — only 5 or 15
   category: "crypto" | "defi" | "meme" | "layer1" | "layer2";
   yesPool: number;
   noPool: number;
   totalVoters: number;
   sentiment: number; // 0-100 bullish percentage
-  priceHistory: number[]; // simplified price array for mini chart
-  status: "active" | "resolved" | "expired";
+  // Candles and priceHistory are legacy fields kept for back-compat; as of
+  // cycle 06 the chart reads from useCandleStore directly. Still typed as
+  // arrays so existing consumers compile.
+  candles: Candle[];
+  priceHistory: number[];
+  status: "active" | "resolved" | "expired" | "settled";
   resolution?: "yes" | "no";
 }
 

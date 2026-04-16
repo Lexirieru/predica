@@ -1,24 +1,58 @@
 import nacl from "tweetnacl";
 import bs58 from "bs58";
+import { fetchWithTimeout } from "./fetchWithTimeout";
 
-const BASE_URL = process.env.PACIFICA_API_URL || "https://test-api.pacifica.fi/api/v1";
+const BASE_URL =
+  process.env.PACIFICA_API_URL || "https://test-api.pacifica.fi/api/v1";
 
 // --- Public endpoints (no auth) ---
 
-export async function getMarketInfo() {
-  const res = await fetch(`${BASE_URL}/info`);
+export async function getMarketInfo(): Promise<any> {
+  const res = await fetchWithTimeout(`${BASE_URL}/info`);
   if (!res.ok) throw new Error(`Pacifica /info failed: ${res.status}`);
   return res.json();
 }
 
-export async function getPrices() {
-  const res = await fetch(`${BASE_URL}/info/prices`);
-  if (!res.ok) throw new Error(`Pacifica /info/prices failed: ${res.status}`);
-  return res.json();
+// Short-TTL memo for /info/prices. The endpoint is called from the /api/markets
+// GET route on every client request and from the activator/settlement crons
+// every 10s. Without caching, a feed of 50 clients polling every few seconds
+// produces a burst of identical upstream calls — the upstream rate-limits
+// eventually bite. TTL matches the cron cadence so settlement + activator
+// firing at the same second coalesce into a single upstream call.
+let pricesCache: { at: number; payload: unknown; inFlight: Promise<unknown> | null } = {
+  at: 0,
+  payload: null,
+  inFlight: null,
+};
+const PRICES_TTL_MS = 10_000;
+
+export async function getPrices(): Promise<any> {
+  const now = Date.now();
+  if (pricesCache.payload && now - pricesCache.at < PRICES_TTL_MS) {
+    return pricesCache.payload;
+  }
+  // Coalesce concurrent misses into a single upstream call (thundering herd).
+  if (pricesCache.inFlight) return pricesCache.inFlight;
+
+  pricesCache.inFlight = (async () => {
+    try {
+      const res = await fetchWithTimeout(`${BASE_URL}/info/prices`);
+      if (!res.ok) throw new Error(`Pacifica /info/prices failed: ${res.status}`);
+      const payload = await res.json();
+      pricesCache = { at: Date.now(), payload, inFlight: null };
+      return payload;
+    } catch (err) {
+      pricesCache.inFlight = null;
+      // Serve stale if we have any — better than an error page.
+      if (pricesCache.payload) return pricesCache.payload;
+      throw err;
+    }
+  })();
+  return pricesCache.inFlight;
 }
 
-export async function getOrderbook(symbol: string) {
-  const res = await fetch(`${BASE_URL}/book?symbol=${symbol}`);
+export async function getOrderbook(symbol: string): Promise<any> {
+  const res = await fetchWithTimeout(`${BASE_URL}/book?symbol=${symbol}`);
   if (!res.ok) throw new Error(`Pacifica /book failed: ${res.status}`);
   return res.json();
 }
@@ -27,24 +61,25 @@ export async function getKline(
   symbol: string,
   interval: string,
   startTime: number,
-  endTime: number
-) {
-  const res = await fetch(
-    `${BASE_URL}/kline?symbol=${symbol}&interval=${interval}&start_time=${startTime}&end_time=${endTime}`
+  endTime: number,
+): Promise<any> {
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/kline?symbol=${symbol}&interval=${interval}&start_time=${startTime}&end_time=${endTime}`,
   );
   if (!res.ok) throw new Error(`Pacifica /kline failed: ${res.status}`);
   return res.json();
 }
 
-export async function getTrades(symbol: string) {
-  const res = await fetch(`${BASE_URL}/trades?symbol=${symbol}`);
+export async function getTrades(symbol: string): Promise<any> {
+  const res = await fetchWithTimeout(`${BASE_URL}/trades?symbol=${symbol}`);
   if (!res.ok) throw new Error(`Pacifica /trades failed: ${res.status}`);
   return res.json();
 }
 
-export async function getFundingHistory(symbol: string) {
-  const res = await fetch(`${BASE_URL}/funding_rate/history?symbol=${symbol}`);
-  if (!res.ok) throw new Error(`Pacifica /funding_rate/history failed: ${res.status}`);
+export async function getFundingHistory(symbol: string): Promise<any> {
+  const res = await fetchWithTimeout(`${BASE_URL}/funding_rate/history?symbol=${symbol}`);
+  if (!res.ok)
+    throw new Error(`Pacifica /funding_rate/history failed: ${res.status}`);
   return res.json();
 }
 
@@ -87,7 +122,7 @@ export async function createMarketOrder(
   side: "bid" | "ask",
   slippagePercent: string = "0.5",
   reduceOnly: boolean = false,
-  clientOrderId: string
+  clientOrderId: string,
 ) {
   const privateKey = process.env.SOLANA_PRIVATE_KEY;
   if (!privateKey) throw new Error("SOLANA_PRIVATE_KEY not set");
@@ -127,7 +162,7 @@ export async function createMarketOrder(
     builder_code: "PREDICA",
   };
 
-  const res = await fetch(`${BASE_URL}/orders/create_market`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/orders/create_market`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
@@ -135,7 +170,9 @@ export async function createMarketOrder(
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Pacifica create_market_order failed: ${res.status} — ${err}`);
+    throw new Error(
+      `Pacifica create_market_order failed: ${res.status} — ${err}`,
+    );
   }
   return res.json();
 }
@@ -156,13 +193,15 @@ export async function getPositions() {
 
   const signature = signPayload(sigPayload, privateKey);
 
-  const res = await fetch(
-    `${BASE_URL}/account/positions?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/account/positions?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`,
   );
 
   if (!res.ok) {
     const err = await res.text();
-    throw new Error(`Pacifica /account/positions failed: ${res.status} — ${err}`);
+    throw new Error(
+      `Pacifica /account/positions failed: ${res.status} — ${err}`,
+    );
   }
   return res.json();
 }
@@ -183,8 +222,8 @@ export async function getAccountInfo() {
 
   const signature = signPayload(sigPayload, privateKey);
 
-  const res = await fetch(
-    `${BASE_URL}/account/info?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`
+  const res = await fetchWithTimeout(
+    `${BASE_URL}/account/info?account=${account}&signature=${signature}&timestamp=${timestamp}&expiry_window=5000`,
   );
 
   if (!res.ok) {
@@ -199,7 +238,7 @@ export async function closePosition(
   symbol: string,
   amount: string,
   side: "bid" | "ask", // opposite of the original position
-  clientOrderId: string
+  clientOrderId: string,
 ) {
   return createMarketOrder(symbol, amount, side, "1.0", true, clientOrderId);
 }

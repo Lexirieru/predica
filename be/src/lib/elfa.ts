@@ -1,3 +1,5 @@
+import { fetchWithTimeout } from "./fetchWithTimeout";
+
 const BASE_URL = "https://api.elfa.ai";
 
 function getHeaders() {
@@ -11,33 +13,37 @@ function getHeaders() {
   };
 }
 
-export async function getTrendingTokens(timeWindow: string = "24h") {
-  const res = await fetch(`${BASE_URL}/v2/aggregations/trending-tokens?timeWindow=${timeWindow}`, {
+export async function getTrendingTokens(timeWindow: string = "24h"): Promise<any> {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/aggregations/trending-tokens?timeWindow=${timeWindow}`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa trending-tokens failed: ${res.status}`);
   return res.json();
 }
 
-export async function getTopMentions(ticker: string) {
-  const res = await fetch(`${BASE_URL}/v2/data/top-mentions?ticker=${ticker}`, {
+export async function getTopMentions(ticker: string): Promise<any> {
+  // Elfa returns empty data when timeWindow/pageSize/page are omitted — the
+  // endpoint silently short-circuits to {total:0} instead of erroring. Pass
+  // the required defaults so the validator and sentiment-proxy see real rows.
+  const qs = `ticker=${encodeURIComponent(ticker)}&timeWindow=24h&pageSize=10&page=1`;
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/top-mentions?${qs}`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa top-mentions failed: ${res.status}`);
   return res.json();
 }
 
-export async function getKeywordMentions(keywords: string[]) {
+export async function getKeywordMentions(keywords: string[]): Promise<any> {
   const q = keywords.slice(0, 5).join(",");
-  const res = await fetch(`${BASE_URL}/v2/data/keyword-mentions?keywords=${encodeURIComponent(q)}`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/keyword-mentions?keywords=${encodeURIComponent(q)}`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa keyword-mentions failed: ${res.status}`);
   return res.json();
 }
 
-export async function getTrendingNarratives() {
-  const res = await fetch(`${BASE_URL}/v2/data/trending-narratives`, {
+export async function getTrendingNarratives(): Promise<any> {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/trending-narratives`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa trending-narratives failed: ${res.status}`);
@@ -45,14 +51,15 @@ export async function getTrendingNarratives() {
 }
 
 export async function chatAnalysis(
-  query: string,
+  message: string,
   mode: "tokenAnalysis" | "macro" | "summary" | "chat" | "tokenIntro" | "accountAnalysis" = "tokenAnalysis",
   ticker?: string
-) {
-  const body: Record<string, string> = { query, mode };
+): Promise<any> {
+  // Elfa API expects `message` (not `query`). The earlier name caused 400s.
+  const body: Record<string, string> = { message, mode };
   if (ticker) body.ticker = ticker;
 
-  const res = await fetch(`${BASE_URL}/v2/chat`, {
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/chat`, {
     method: "POST",
     headers: getHeaders(),
     body: JSON.stringify(body),

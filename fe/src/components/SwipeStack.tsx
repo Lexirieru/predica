@@ -4,6 +4,7 @@ import { useState, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence, type PanInfo } from "framer-motion";
 import { PredictionMarket } from "@/lib/types";
 import { useStore } from "@/store/useStore";
+import { prefetchCandles } from "@/hooks/useCandlesFor";
 import MarketCard from "./MarketCard";
 
 const SWIPE_THRESHOLD = 80;
@@ -23,12 +24,39 @@ const variants = {
   }),
 };
 
-export default function SwipeStack({ markets }: { markets: PredictionMarket[] }) {
-  const { currentMarketIndex, setCurrentMarketIndex } = useStore();
+export default function SwipeStack({
+  markets,
+  onAdvance,
+}: {
+  markets: PredictionMarket[];
+  /** Advance the whole feed from settled to live (one click = all cards). */
+  onAdvance?: () => void;
+}) {
+  const currentMarketIndex = useStore((s) => s.currentMarketIndex);
+  const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
   const [direction, setDirection] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   // Fix from fe-swipenit: lock transitions to prevent rapid-fire from trackpad
   const canTransition = useRef(true);
+  // Track by symbol so the user stays on the same symbol when its bucket
+  // rotates (settled → next active 5m bucket has a different market.id but
+  // same symbol). Tracking by id alone would cause the index to jump to 0
+  // every 5min when the bucket rotates.
+  // Track by (symbol + durationMin) so the user stays on the same card when
+  // its bucket rotates. Different durations for the same symbol are distinct
+  // cards, so symbol alone is not enough to identify the card.
+  const currentKeyRef = useRef<string | null>(null);
+
+  useEffect(() => {
+    if (markets.length === 0) return;
+    const currentKey = currentKeyRef.current;
+    if (currentKey) {
+      const newIdx = markets.findIndex((m) => `${m.symbol}:${m.durationMin}` === currentKey);
+      if (newIdx >= 0 && newIdx !== currentMarketIndex) {
+        setCurrentMarketIndex(newIdx);
+      }
+    }
+  }, [markets, currentMarketIndex, setCurrentMarketIndex]);
 
   const goTo = useCallback(
     (dir: number) => {
@@ -93,9 +121,22 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
     [goTo]
   );
 
+  // Prefetch candles for neighbors (1 ahead, 1 behind, wrap) so a swipe
+  // lands on a card that already has data. Store dedupes — safe to over-call.
+  useEffect(() => {
+    if (markets.length === 0) return;
+    const idx = currentMarketIndex < markets.length ? currentMarketIndex : 0;
+    const prev = markets[(idx - 1 + markets.length) % markets.length];
+    const next = markets[(idx + 1) % markets.length];
+    if (prev) prefetchCandles(prev.symbol);
+    if (next) prefetchCandles(next.symbol);
+  }, [markets, currentMarketIndex]);
+
   if (markets.length === 0) return null;
 
-  const market = markets[currentMarketIndex];
+  const safeIndex = currentMarketIndex < markets.length ? currentMarketIndex : 0;
+  const market = markets[safeIndex];
+  currentKeyRef.current = `${market.symbol}:${market.durationMin}`;
 
   return (
     <div
@@ -113,7 +154,11 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
         }}
       >
         <motion.div
-          key={market.id}
+          // Key by symbol (not market.id) so bucket rotation within the same
+          // symbol (settled 8:30 → active 8:35) doesn't retrigger the swipe
+          // enter/exit animation. Swiping to a different symbol still animates
+          // because the key changes.
+          key={`${market.symbol}:${market.durationMin}`}
           custom={direction}
           variants={variants}
           initial="enter"
@@ -129,7 +174,7 @@ export default function SwipeStack({ markets }: { markets: PredictionMarket[] })
           onDragEnd={handleDragEnd}
           className="absolute inset-0 p-3 touch-pan-x"
         >
-          <MarketCard market={market} />
+          <MarketCard market={market} onAdvance={onAdvance} />
         </motion.div>
       </AnimatePresence>
     </div>

@@ -30,6 +30,7 @@ export function useBalance(walletAddress: string | undefined): Balances {
           method: "getBalance",
           params: [walletAddress],
         }),
+        signal: AbortSignal.timeout(10_000),
       });
       const solData = await solRes.json();
       const solBalance = (solData?.result?.value || 0) / 1e9;
@@ -48,6 +49,7 @@ export function useBalance(walletAddress: string | undefined): Balances {
             { encoding: "jsonParsed" },
           ],
         }),
+        signal: AbortSignal.timeout(10_000),
       });
       const tokenData = await tokenRes.json();
       const accounts = tokenData?.result?.value || [];

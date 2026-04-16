@@ -1,24 +1,34 @@
 import { Router, Request, Response } from "express";
-import { getActiveMarkets, getAllMarkets, getMarketById, createMarket } from "../db/markets";
-import { getVotesByMarket } from "../db/votes";
+import { z } from "zod";
+import { marketRepo, voteRepo } from "../db/dal";
 import * as pacifica from "../lib/pacifica";
 
 const router = Router();
 
+const CreateMarketSchema = z.object({
+  symbol: z.string().min(1).max(20),
+  question: z.string().min(5).max(500),
+  targetPrice: z.number().positive().finite(),
+  currentPrice: z.number().positive().finite().optional(),
+  deadline: z.number().int().refine((v) => v > Date.now(), "deadline must be in the future"),
+  category: z.string().max(40).optional(),
+  sentiment: z.number().min(0).max(100).optional(),
+});
+
 // GET /api/markets — active markets with live prices
 router.get("/", async (_req: Request, res: Response) => {
   try {
-    const markets = getActiveMarkets();
+    const markets = await marketRepo.getActive();
 
     // Try to enrich with live Pacifica prices
     try {
       const priceData = await pacifica.getPrices();
-      if (priceData && typeof priceData === "object") {
-        for (const m of markets) {
-          const symbolPrices = priceData[m.symbol];
-          if (symbolPrices?.mark_price) {
-            m.current_price = parseFloat(symbolPrices.mark_price);
-          }
+      if (priceData?.data && Array.isArray(priceData.data)) {
+        for (const m of markets as any) {
+          const p = priceData.data.find(
+            (d: any) => d.symbol.toUpperCase() === m.symbol.toUpperCase(),
+          );
+          if (p?.mark) m.currentPrice = parseFloat(p.mark);
         }
       }
     } catch {
@@ -27,28 +37,123 @@ router.get("/", async (_req: Request, res: Response) => {
 
     res.json(markets);
   } catch (err) {
+    console.error("[Markets] Error:", err);
     res.status(500).json({ error: "Failed to fetch markets" });
   }
 });
 
-// GET /api/markets/all — all markets including resolved
-router.get("/all", (_req: Request, res: Response) => {
+// GET /api/markets/all — all markets including resolved (max 200)
+router.get("/all", async (_req: Request, res: Response) => {
   try {
-    res.json(getAllMarkets());
-  } catch {
+    res.json(await marketRepo.getAll());
+  } catch (err) {
+    console.error("[Markets/all] Error:", err);
     res.status(500).json({ error: "Failed to fetch markets" });
   }
 });
 
-// GET /api/markets/:id
-router.get("/:id", (req: Request, res: Response) => {
+// GET /api/markets/symbol/:SYMBOL
+// Timeline view for a single asset: past (resolved) + live + upcoming buckets.
+// Designed for Polymarket-style symbol pages where the chart is continuous
+// and the series of rounds shows below it.
+router.get("/symbol/:symbol", async (req: Request, res: Response) => {
   try {
-    const market = getMarketById(req.params.id);
+    const symbol = String(req.params.symbol);
+    if (!symbol || symbol.length > 20) {
+      res.status(400).json({ error: "Invalid symbol" });
+      return;
+    }
+    const pastLimit = Math.min(parseInt(req.query.past as string) || 12, 50);
+    const series = await marketRepo.getSeries(symbol, pastLimit);
+    res.json(series);
+  } catch (err) {
+    console.error("[Markets/series] Error:", err);
+    res.status(500).json({ error: "Failed to fetch series" });
+  }
+});
+
+// GET /api/markets/:id/hype — vote-ratio timeline (running yes/no pool over time).
+// Powers the "hype meter" sparkline. Response structure is normalized so FE
+// can pipe straight into a chart library.
+//
+// In-process cache keyed by marketId:
+//   - settled markets: timeline is immutable, cache forever (no revalidation).
+//   - active markets: 30s TTL, sparkline barely changes tick-to-tick.
+// Eviction: hard cap at 500 entries with oldest-first drop when over.
+type HypePayload = ReturnType<typeof buildHypeResponse>;
+const hypeCache = new Map<string, { payload: HypePayload; at: number; settled: boolean }>();
+const HYPE_CACHE_TTL_MS = 30_000;
+const HYPE_CACHE_MAX = 500;
+
+function buildHypeResponse(market: any, raw: Awaited<ReturnType<typeof voteRepo.getHypeTimeline>>) {
+  const timeline = raw.map((p) => {
+    const total = p.yes + p.no;
+    return {
+      t: p.t,
+      yesShare: total > 0 ? p.yes / total : 0.5,
+      noShare:  total > 0 ? p.no  / total : 0.5,
+      yesPool: p.yes,
+      noPool: p.no,
+      totalVotes: p.totalVotes,
+    };
+  });
+  const totalPool = market.yesPool + market.noPool;
+  const current = {
+    yesShare: totalPool > 0 ? market.yesPool / totalPool : 0.5,
+    noShare:  totalPool > 0 ? market.noPool  / totalPool : 0.5,
+    yesPool: market.yesPool,
+    noPool: market.noPool,
+    totalVoters: market.totalVoters,
+  };
+  return {
+    marketId: market.id,
+    symbol: market.symbol,
+    status: market.status,
+    current,
+    timeline,
+  };
+}
+
+router.get("/:id/hype", async (req: Request, res: Response) => {
+  try {
+    const id = String(req.params.id);
+    const cached = hypeCache.get(id);
+    if (cached && (cached.settled || Date.now() - cached.at < HYPE_CACHE_TTL_MS)) {
+      res.json(cached.payload);
+      return;
+    }
+
+    const market = await marketRepo.getById(id);
     if (!market) {
       res.status(404).json({ error: "Market not found" });
       return;
     }
-    const votes = getVotesByMarket(req.params.id);
+    const raw = await voteRepo.getHypeTimeline(market.id);
+    const payload = buildHypeResponse(market, raw);
+
+    if (hypeCache.size >= HYPE_CACHE_MAX) {
+      // Map iteration order is insertion order → first key is oldest entry.
+      const oldest = hypeCache.keys().next().value;
+      if (oldest) hypeCache.delete(oldest);
+    }
+    hypeCache.set(id, { payload, at: Date.now(), settled: market.status === "settled" });
+
+    res.json(payload);
+  } catch (err) {
+    console.error("[Markets/hype] Error:", err);
+    res.status(500).json({ error: "Failed to fetch hype" });
+  }
+});
+
+// GET /api/markets/:id
+router.get("/:id", async (req: Request, res: Response) => {
+  try {
+    const market = await marketRepo.getById(String(req.params.id));
+    if (!market) {
+      res.status(404).json({ error: "Market not found" });
+      return;
+    }
+    const votes = await voteRepo.getByMarket(String(req.params.id));
     res.json({ ...market, votes });
   } catch {
     res.status(500).json({ error: "Failed to fetch market" });
@@ -56,27 +161,17 @@ router.get("/:id", (req: Request, res: Response) => {
 });
 
 // POST /api/markets — create a new prediction market
-router.post("/", (req: Request, res: Response) => {
+router.post("/", async (req: Request, res: Response) => {
+  const parsed = CreateMarketSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid payload", details: parsed.error.issues });
+    return;
+  }
   try {
-    const { symbol, question, targetPrice, currentPrice, deadline, category, sentiment } = req.body;
-
-    if (!symbol || !question || !targetPrice || !deadline) {
-      res.status(400).json({ error: "Missing required fields: symbol, question, targetPrice, deadline" });
-      return;
-    }
-
-    const market = createMarket({
-      symbol,
-      question,
-      targetPrice,
-      currentPrice: currentPrice || 0,
-      deadline,
-      category: category || "crypto",
-      sentiment,
-    });
-
+    const market = await marketRepo.create(parsed.data);
     res.status(201).json(market);
-  } catch {
+  } catch (err) {
+    console.error("[Markets/create] Error:", err);
     res.status(500).json({ error: "Failed to create market" });
   }
 });

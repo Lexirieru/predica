@@ -1,120 +1,221 @@
 "use client";
 
-import { useId } from "react";
+import { useEffect, useMemo, useRef } from "react";
+import { createChart, type IChartApi, type ISeriesApi, type LineData, type Time, ColorType, LineSeries } from "lightweight-charts";
+import type { Candle } from "@/lib/types";
 
-function shortPrice(p: number): string {
-  if (p >= 10000) return `$${p.toLocaleString("en-US", { maximumFractionDigits: 0 })}`;
-  if (p >= 100) return `$${p.toFixed(1)}`;
-  if (p >= 1) return `$${p.toFixed(2)}`;
-  return `$${p.toFixed(4)}`;
+interface Props {
+  candles: Candle[];
+  currentPrice: number;
+  targetPrice?: number;
+  isPositive: boolean;
+  /** When true, chart ignores live currentPrice updates (historical freeze). */
+  frozen?: boolean;
+  /** Settlement price marker — rendered as a colored price line above target. */
+  settlementPrice?: number;
+  /** True = settled YES (settlement price above target). Colors the marker. */
+  settledPositive?: boolean;
 }
 
 export default function PriceChart({
-  data,
-  isPositive,
+  candles,
+  currentPrice,
   targetPrice,
-}: {
-  data: number[];
-  isPositive: boolean;
-  targetPrice?: number;
-}) {
-  const uid = useId();
-  if (data.length < 2) return null;
+  frozen,
+  settlementPrice,
+  settledPositive,
+}: Props) {
+  const containerRef = useRef<HTMLDivElement>(null);
+  const chartRef = useRef<IChartApi | null>(null);
+  const seriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+  const priceLineRef = useRef<ReturnType<ISeriesApi<"Line">["createPriceLine"]> | null>(null);
+  const settlementLineRef = useRef<ReturnType<ISeriesApi<"Line">["createPriceLine"]> | null>(null);
+  // Fingerprint of last seeded data so we can skip redundant setData calls
+  // but still re-seed when the underlying dataset changes (bucket nav).
+  const lastSeedRef = useRef<string>("");
 
-  const chartW = 260;
-  const chartH = 90;
-  const padL = 4;
-  const padR = 40; // space for price labels
-  const padY = 8;
-  const w = chartW - padR;
+  // Create chart once
+  useEffect(() => {
+    if (!containerRef.current) return;
 
-  const allVals = targetPrice ? [...data, targetPrice] : data;
-  const rawMin = Math.min(...allVals);
-  const rawMax = Math.max(...allVals);
-  const rawRange = rawMax - rawMin || 1;
-  // Add 40% vertical padding so the line sits in the middle, not flat edge-to-edge
-  const padding40 = rawRange * 0.4;
-  const min = rawMin - padding40;
-  const max = rawMax + padding40;
-  const range = max - min;
-  const toY = (v: number) => padY + (1 - (v - min) / range) * (chartH - padY * 2);
+    const chart = createChart(containerRef.current, {
+      layout: {
+        background: { type: ColorType.Solid, color: "transparent" },
+        textColor: "rgba(255,255,255,0.2)",
+        fontSize: 10,
+      },
+      grid: {
+        vertLines: { color: "rgba(255,255,255,0.03)" },
+        horzLines: { color: "rgba(255,255,255,0.03)" },
+      },
+      rightPriceScale: {
+        borderVisible: false,
+        scaleMargins: { top: 0.15, bottom: 0.15 },
+      },
+      timeScale: {
+        borderVisible: false,
+        timeVisible: true,
+        secondsVisible: true,
+        rightOffset: 3,
+        fixLeftEdge: true,
+        fixRightEdge: true,
+      },
+      crosshair: {
+        horzLine: { visible: false },
+        vertLine: { color: "rgba(255,255,255,0.1)", width: 1, style: 3 },
+      },
+      handleScale: false,
+      handleScroll: false,
+    });
 
-  const pts = data.map((v, i) => ({
-    x: padL + (i / (data.length - 1)) * (w - padL),
-    y: toY(v),
-  }));
+    const series = chart.addSeries(LineSeries, {
+      color: "#F0A500",
+      lineWidth: 2,
+      lineType: 0,
+      crosshairMarkerVisible: true,
+      crosshairMarkerRadius: 4,
+      crosshairMarkerBackgroundColor: "#F0A500",
+      lastValueVisible: true,
+      priceLineVisible: false,
+    });
 
-  const line = pts.map((p, i) => {
-    if (i === 0) return `M ${p.x} ${p.y}`;
-    const prev = pts[i - 1];
-    return `C ${prev.x + (p.x - prev.x) * 0.4} ${prev.y}, ${prev.x + (p.x - prev.x) * 0.6} ${p.y}, ${p.x} ${p.y}`;
-  }).join(" ");
+    chartRef.current = chart;
+    seriesRef.current = series;
+    lastSeedRef.current = "";
 
-  const area = `${line} L ${pts[pts.length - 1].x} ${chartH} L ${pts[0].x} ${chartH} Z`;
-  const color = isPositive ? "#00b482" : "#dc3246";
-  const glow = isPositive ? "rgba(0,180,130,0.3)" : "rgba(220,50,70,0.3)";
-  const gId = `g-${uid}`;
-  const fId = `f-${uid}`;
-  const last = pts[pts.length - 1];
-  const targetY = targetPrice ? toY(targetPrice) : null;
+    // On every width change, re-apply width AND re-fit content. Without the
+    // fitContent call, a chart that was created while its container was still
+    // mid-layout (e.g. remounted during a card transition) gets stuck with
+    // the Y-scale computed against the transient size. That's what caused
+    // "chart feels zoomed after navigating between past buckets and back to
+    // live" — the new chart instance inherited a cramped visible range from
+    // its first measurement. handleScale/handleScroll are both false so
+    // re-fitting on resize doesn't fight user interaction.
+    const observer = new ResizeObserver(() => {
+      const c = chartRef.current;
+      const el = containerRef.current;
+      if (!c || !el) return;
+      c.applyOptions({ width: el.clientWidth });
+      c.timeScale().fitContent();
+    });
+    observer.observe(containerRef.current);
 
-  // Price labels on right axis — 5 ticks for better readability
-  const priceTicks = [0.1, 0.3, 0.5, 0.7, 0.9].map((p) => min + range * p);
+    return () => {
+      observer.disconnect();
+      chart.remove();
+      chartRef.current = null;
+      seriesRef.current = null;
+      lastSeedRef.current = "";
+    };
+  }, []);
+
+  // Normalize candles → dedup time + sort + LineData shape. Memoized because
+  // a single candles array change triggers this, and parent re-renders on
+  // unrelated props (currentPrice) would otherwise redo this O(n log n) work.
+  const data: LineData<Time>[] = useMemo(() => {
+    const seen = new Map<number, number>();
+    for (const c of candles) {
+      if (c.close > 0) seen.set(c.time, c.close);
+    }
+    return Array.from(seen.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([t, v]) => ({ time: t as Time, value: v }));
+  }, [candles]);
+
+  // Seed / re-seed when dataset fingerprint changes. Using a fingerprint
+  // instead of a once-flag so past→live navigation properly re-seeds when
+  // the candles prop identity flips between renders.
+  useEffect(() => {
+    if (!seriesRef.current || data.length === 0) return;
+
+    const first = data[0];
+    const last = data[data.length - 1];
+    const fingerprint = `${data.length}:${first.time}:${last.time}:${last.value}`;
+    if (fingerprint === lastSeedRef.current) return;
+    lastSeedRef.current = fingerprint;
+
+    // Dynamic precision: 5 significant digits (matches Pacifica's display).
+    //   74,755   → 0 decimals
+    //   2347.6   → 1 decimal
+    //   45.183   → 3 decimals
+    //   1.4155   → 4 decimals  (XRP)
+    //   0.034538 → 6 decimals  (DOGE: 1 leading zero + 5 sig)
+    const lastValue = last.value;
+    const precision = (() => {
+      const abs = Math.abs(lastValue);
+      if (abs <= 0) return 2;
+      if (abs >= 1) {
+        const intDigits = Math.floor(Math.log10(abs)) + 1;
+        return Math.max(0, 5 - intDigits);
+      }
+      const leadingZeros = Math.floor(-Math.log10(abs));
+      return leadingZeros + 5;
+    })();
+    const minMove = 1 / Math.pow(10, precision);
+    seriesRef.current.applyOptions({
+      priceFormat: { type: "price", precision, minMove },
+    });
+
+    seriesRef.current.setData(data);
+
+    // Target price line
+    if (priceLineRef.current) {
+      seriesRef.current.removePriceLine(priceLineRef.current);
+      priceLineRef.current = null;
+    }
+    if (targetPrice && targetPrice > 0) {
+      priceLineRef.current = seriesRef.current.createPriceLine({
+        price: targetPrice,
+        color: "rgba(255,255,255,0.15)",
+        lineWidth: 1,
+        lineStyle: 2,
+        axisLabelVisible: true,
+        title: "Target",
+      });
+    }
+
+    // Settlement marker — only rendered in frozen (historical) mode.
+    if (settlementLineRef.current) {
+      seriesRef.current.removePriceLine(settlementLineRef.current);
+      settlementLineRef.current = null;
+    }
+    if (frozen && settlementPrice && settlementPrice > 0) {
+      settlementLineRef.current = seriesRef.current.createPriceLine({
+        price: settlementPrice,
+        color: settledPositive ? "#00b482" : "#dc3246",
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: "Settled",
+      });
+    }
+
+    // Defer fitContent to the next frame so the container has committed its
+    // final width before we compute the visible range. Calling it
+    // synchronously during a remount mid-animation produces a Y-scale fit
+    // against a 0-width / pre-layout measurement, which then sticks.
+    const rafId = requestAnimationFrame(() => {
+      chartRef.current?.timeScale().fitContent();
+    });
+    return () => cancelAnimationFrame(rafId);
+  }, [data, targetPrice, frozen, settlementPrice, settledPositive]);
+
+  // Realtime tick update — only runs in live mode. Frozen (historical) mode
+  // skips these so the chart stays pinned to the selected bucket's candles.
+  // Requires the chart to have been seeded at least once (lastSeedRef set),
+  // otherwise update() would append to an empty series with no time context.
+  useEffect(() => {
+    if (frozen) return;
+    if (!seriesRef.current || !lastSeedRef.current || !currentPrice || currentPrice <= 0) return;
+
+    const now = Math.floor(Date.now() / 1000);
+    seriesRef.current.update({
+      time: now as Time,
+      value: currentPrice,
+    });
+  }, [currentPrice, frozen]);
 
   return (
-    <svg viewBox={`0 0 ${chartW} ${chartH}`} className="w-full h-full" preserveAspectRatio="xMidYMid meet" aria-hidden="true">
-      <defs>
-        <linearGradient id={gId} x1="0" y1="0" x2="0" y2="1">
-          <stop offset="0%" stopColor={color} stopOpacity="0.15" />
-          <stop offset="100%" stopColor={color} stopOpacity="0" />
-        </linearGradient>
-        <filter id={fId} x="-10%" y="-10%" width="120%" height="120%">
-          <feGaussianBlur stdDeviation="2" result="b" />
-          <feMerge><feMergeNode in="b" /><feMergeNode in="SourceGraphic" /></feMerge>
-        </filter>
-      </defs>
-
-      {/* Grid + price labels */}
-      {priceTicks.map((p, i) => {
-        const y = toY(p);
-        return (
-          <g key={i}>
-            <line x1={padL} y1={y} x2={w} y2={y} stroke="rgba(255,255,255,0.04)" strokeWidth="0.5" />
-            <text x={w + 4} y={y + 3} fill="rgba(255,255,255,0.15)" fontSize="6.5" fontFamily="monospace">
-              {shortPrice(p)}
-            </text>
-          </g>
-        );
-      })}
-
-      {/* Target dashed line */}
-      {targetY !== null && (
-        <>
-          <line x1={padL} y1={targetY} x2={w} y2={targetY}
-            stroke="rgba(255,255,255,0.12)" strokeWidth="0.8" strokeDasharray="3 2"
-            style={{ transition: "y1 0.5s, y2 0.5s" }}
-          />
-          <rect x={w - 32} y={targetY - 7} width="32" height="12" rx="3" fill="rgba(255,255,255,0.06)" />
-          <text x={w - 16} y={targetY + 1} textAnchor="middle" fill="rgba(255,255,255,0.25)" fontSize="6" fontFamily="monospace">
-            Target
-          </text>
-        </>
-      )}
-
-      {/* Area */}
-      <path d={area} fill={`url(#${gId})`} style={{ transition: "d 0.8s cubic-bezier(0.23,1,0.32,1)" }} />
-
-      {/* Line */}
-      <path d={line} fill="none" stroke={color} strokeWidth="1.8" strokeLinecap="round"
-        strokeLinejoin="round" filter={`url(#${fId})`}
-        style={{ transition: "d 0.8s cubic-bezier(0.23,1,0.32,1)" }}
-      />
-
-      {/* End dot */}
-      <circle cx={last.x} cy={last.y} r="4" fill={glow} style={{ transition: "cx 0.8s, cy 0.8s" }}>
-        <animate attributeName="r" values="3;6;3" dur="2s" repeatCount="indefinite" />
-      </circle>
-      <circle cx={last.x} cy={last.y} r="2" fill={color} style={{ transition: "cx 0.8s, cy 0.8s" }} />
-    </svg>
+    <div ref={containerRef} className="w-full h-full [&_a[href*='tradingview']]:!hidden" />
   );
 }

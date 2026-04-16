@@ -1,53 +1,38 @@
 import { Router, Request, Response } from "express";
+import { z } from "zod";
 import * as elfa from "../lib/elfa";
+import { getSentiment } from "../lib/sentimentCache";
 
 const router = Router();
 
-// GET /api/sentiment/:symbol — social sentiment from Elfa
-router.get("/:symbol", async (req: Request, res: Response) => {
-  try {
-    const { symbol } = req.params;
-    const mentions = await elfa.getTopMentions(symbol);
-    const data = mentions?.data || [];
+// Symbols are 2-20 uppercase alphanumerics (BTC, kPEPE, SOL-USDC, etc).
+// Reject anything else to keep user input out of API URLs and cache keys.
+const SymbolSchema = z.string().min(1).max(20).regex(/^[A-Za-z0-9-]+$/);
 
-    // Calculate simple sentiment from engagement
-    let totalEngagement = 0;
-    let positiveSignals = 0;
-
-    for (const m of data.slice(0, 20)) {
-      const engagement = (m.likeCount || 0) + (m.repostCount || 0) * 2;
-      totalEngagement += engagement;
-      if (engagement > 100) positiveSignals++;
-    }
-
-    const mentionCount = data.length;
-    const bullishPercent = mentionCount > 0
-      ? Math.round((positiveSignals / Math.min(mentionCount, 20)) * 100)
-      : 50;
-
-    res.json({
-      symbol: symbol.toUpperCase(),
-      mentionCount,
-      bullishPercent,
-      topMentions: data.slice(0, 5).map((m: Record<string, unknown>) => ({
-        link: m.link,
-        likes: m.likeCount,
-        reposts: m.repostCount,
-        views: m.viewCount,
-      })),
-    });
-  } catch {
-    res.status(502).json({ error: "Failed to fetch sentiment data" });
-  }
-});
-
-// GET /api/sentiment — trending tokens
+// GET /api/sentiment — trending tokens. MUST be defined before /:symbol
+// or Express matches "sentiment/" as symbol="" and 400s out.
 router.get("/", async (_req: Request, res: Response) => {
   try {
     const trending = await elfa.getTrendingTokens("24h");
     res.json(trending);
   } catch {
     res.status(502).json({ error: "Failed to fetch trending data" });
+  }
+});
+
+// GET /api/sentiment/:symbol — LLM-backed sentiment with stale-while-revalidate.
+router.get("/:symbol", async (req: Request, res: Response) => {
+  const parsed = SymbolSchema.safeParse(req.params.symbol);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Invalid symbol" });
+    return;
+  }
+  try {
+    const result = await getSentiment(parsed.data);
+    res.json(result);
+  } catch (err) {
+    console.error("[Sentiment] Error:", err);
+    res.status(502).json({ error: "Failed to fetch sentiment data" });
   }
 });
 

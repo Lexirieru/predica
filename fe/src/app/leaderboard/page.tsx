@@ -5,11 +5,11 @@ import { fetchLeaderboard } from "@/lib/api";
 
 interface LeaderEntry {
   wallet: string;
-  total_votes: number;
+  totalVotes: number;
   wins: number;
   losses: number;
-  total_wagered: number;
-  total_pnl: number;
+  totalWagered: number;
+  totalPnl: number;
 }
 
 export default function LeaderboardPage() {
@@ -18,7 +18,9 @@ export default function LeaderboardPage() {
 
   useEffect(() => {
     fetchLeaderboard()
-      .then(setBoard)
+      .then((data: LeaderEntry[]) => {
+        setBoard([...data].sort((a, b) => (b.totalPnl ?? 0) - (a.totalPnl ?? 0)));
+      })
       .catch(() => {})
       .finally(() => setLoading(false));
   }, []);
@@ -28,7 +30,7 @@ export default function LeaderboardPage() {
   return (
     <div className="h-full overflow-y-auto px-4 py-4">
       <h1 className="text-xl font-bold text-white mb-1">Leaderboard</h1>
-      <p className="text-white/30 text-sm mb-5">Top predictors by wins</p>
+      <p className="text-white/30 text-sm mb-5">Top predictors by profit</p>
 
       {loading ? (
         <div className="flex justify-center pt-20">
@@ -46,14 +48,14 @@ export default function LeaderboardPage() {
         <div className="space-y-2">
           {board.map((entry, i) => {
             const rank = i + 1;
-            const accuracy = entry.total_votes > 0
-              ? Math.round((entry.wins / entry.total_votes) * 100)
+            const accuracy = entry.totalVotes > 0
+              ? Math.round((entry.wins / entry.totalVotes) * 100)
               : 0;
 
             return (
               <div
                 key={entry.wallet}
-                className="flex items-center gap-3 p-3 rounded-2xl border border-white/[0.06] bg-white/[0.02]"
+                className="flex items-center gap-3 p-3 rounded-2xl border border-white/6 bg-white/2"
               >
                 {/* Rank */}
                 <div
@@ -82,13 +84,13 @@ export default function LeaderboardPage() {
                   </p>
                 </div>
 
-                {/* Stats */}
+                {/* PnL */}
                 <div className="text-right shrink-0">
-                  <p className="text-white text-sm font-semibold tabular-nums">
-                    {entry.total_votes} votes
+                  <p className={`text-sm font-bold tabular-nums ${(entry.totalPnl ?? 0) >= 0 ? "text-[#00b482]" : "text-[#dc3246]"}`}>
+                    {(entry.totalPnl ?? 0) >= 0 ? "+" : ""}{(entry.totalPnl ?? 0).toFixed(2)} USDP
                   </p>
                   <p className="text-white/30 text-xs tabular-nums">
-                    ${entry.total_wagered.toFixed(0)} wagered
+                    {entry.totalVotes} votes
                   </p>
                 </div>
               </div>
