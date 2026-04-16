@@ -80,9 +80,27 @@ export default function DepositModal({ open, onClose, onSuccess }: Props) {
       setStatus("Confirming on-chain...");
       await connection.confirmTransaction(txSig, "confirmed");
 
-      // Verify on backend
+      // Verify on backend. Retries because the RPC node BE talks to may lag
+      // behind the one that just confirmed our tx — getParsedTransaction can
+      // return null for up to ~15s after confirmTransaction succeeds on the
+      // FE's RPC. BE already retries 3× internally (3s gaps), but the overall
+      // HTTP request can still timeout. FE retries the POST itself twice more
+      // to cover cross-RPC propagation windows.
       setStatus("Verifying deposit...");
-      await verifyDeposit(address, amount, txSig);
+      let verified = false;
+      for (let attempt = 0; attempt < 3 && !verified; attempt++) {
+        try {
+          await verifyDeposit(address, amount, txSig);
+          verified = true;
+        } catch (err) {
+          if (attempt < 2) {
+            setStatus(`Verifying deposit (attempt ${attempt + 2}/3)...`);
+            await new Promise((r) => setTimeout(r, 4000));
+          } else {
+            throw err;
+          }
+        }
+      }
 
       setStatus("Deposit successful!");
       setTimeout(() => { onSuccess(); onClose(); setAmount(0); setStatus(""); }, 1000);

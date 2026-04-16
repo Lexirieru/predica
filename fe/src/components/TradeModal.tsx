@@ -6,7 +6,7 @@ import { useStore } from "@/store/useStore";
 import { placeVote } from "@/lib/api";
 import { useAppKitAccount, useAppKitProvider } from "@reown/appkit/react";
 import type { Provider } from "@reown/appkit-adapter-solana";
-import bs58 from "bs58";
+import { signAuthHeaders } from "@/lib/signAuth";
 import { computeShareWeight, describeWeight } from "@/lib/payoutWeight";
 
 const QUICK_AMOUNTS = [1, 5, 10, 100];
@@ -21,6 +21,7 @@ export default function TradeModal() {
   const tradeModalMarketId = useStore((s) => s.tradeModalMarketId);
   const markets = useStore((s) => s.markets);
   const balance = useStore((s) => s.balance);
+  const pendingVotes = useStore((s) => s.pendingVotes);
   const closeTradeModal = useStore((s) => s.closeTradeModal);
   const applyOptimisticVote = useStore((s) => s.applyOptimisticVote);
   const confirmOptimisticVote = useStore((s) => s.confirmOptimisticVote);
@@ -76,20 +77,23 @@ export default function TradeModal() {
       return;
     }
 
+    // Double-submit guard: if there's already a pending vote for this market,
+    // block. The previous POST is still in flight and its background reconcile
+    // hasn't landed yet. Without this, rapid clicks would debit twice and fire
+    // two POSTs — both of which succeed on the BE and charge the user double.
+    if (pendingVotes.some((v) => v.marketId === market.id)) {
+      setStatus("Vote already processing...");
+      return;
+    }
+
     setSubmitting(true);
     setStatus("Signing...");
 
-    // Phase 1: sign (this IS synchronous UX — the wallet popup must complete
-    // before we can optimistically commit anything, because a rejected sign
-    // means the user never agreed to the bet at all).
-    let signature: string;
-    let timestamp: number;
+    // Phase 1: sign via centralized helper (same message format used by
+    // WithdrawModal and push subscribe — single source of truth in signAuth.ts).
+    let signed;
     try {
-      timestamp = Date.now();
-      const message = `Predica Auth: VOTE by ${address} at ${timestamp}`;
-      const encoded = new TextEncoder().encode(message);
-      const sigBytes = await walletProvider.signMessage(encoded);
-      signature = bs58.encode(sigBytes);
+      signed = await signAuthHeaders(walletProvider, "VOTE", address);
     } catch (err) {
       setStatus(err instanceof Error ? err.message : "Signing cancelled");
       setSubmitting(false);
@@ -110,7 +114,7 @@ export default function TradeModal() {
 
     // Phase 3: background POST + reconcile.
     try {
-      const result = await placeVote(marketId, address, side, wager, signature, timestamp);
+      const result = await placeVote(marketId, address, side, wager, signed.headers["x-signature"], signed.timestamp);
       confirmOptimisticVote(tempId, result.balance ?? balance - wager);
       pushToast("success", `Vote placed: ${side === "yes" ? "Up" : "Down"} $${wager}`);
     } catch (err) {
