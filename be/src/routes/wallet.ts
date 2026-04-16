@@ -220,7 +220,7 @@ router.post("/withdraw", authMiddleware("WITHDRAW"), async (req: Request, res: R
 // GET /api/wallet/balance/:address
 router.get("/balance/:address", async (req: Request, res: Response) => {
   try {
-    const user = await db.query.users.findFirst({ where: eq(users.wallet, req.params.address) });
+    const user = await db.query.users.findFirst({ where: eq(users.wallet, String(req.params.address)) });
     res.json({
       balance: user?.balance ?? 0,
       totalDeposits: user?.totalDeposits ?? 0,
@@ -235,7 +235,7 @@ router.get("/balance/:address", async (req: Request, res: Response) => {
 router.get("/transactions/:address", async (req: Request, res: Response) => {
   try {
     const txs = await db.query.transactions.findMany({
-      where: eq(transactions.wallet, req.params.address),
+      where: eq(transactions.wallet, String(req.params.address)),
       orderBy: [desc(transactions.createdAt)],
       limit: 50,
     });

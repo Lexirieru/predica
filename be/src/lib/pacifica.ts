@@ -7,7 +7,7 @@ const BASE_URL =
 
 // --- Public endpoints (no auth) ---
 
-export async function getMarketInfo() {
+export async function getMarketInfo(): Promise<any> {
   const res = await fetchWithTimeout(`${BASE_URL}/info`);
   if (!res.ok) throw new Error(`Pacifica /info failed: ${res.status}`);
   return res.json();
@@ -26,7 +26,7 @@ let pricesCache: { at: number; payload: unknown; inFlight: Promise<unknown> | nu
 };
 const PRICES_TTL_MS = 5_000;
 
-export async function getPrices() {
+export async function getPrices(): Promise<any> {
   const now = Date.now();
   if (pricesCache.payload && now - pricesCache.at < PRICES_TTL_MS) {
     return pricesCache.payload;
@@ -51,7 +51,7 @@ export async function getPrices() {
   return pricesCache.inFlight;
 }
 
-export async function getOrderbook(symbol: string) {
+export async function getOrderbook(symbol: string): Promise<any> {
   const res = await fetchWithTimeout(`${BASE_URL}/book?symbol=${symbol}`);
   if (!res.ok) throw new Error(`Pacifica /book failed: ${res.status}`);
   return res.json();
@@ -62,7 +62,7 @@ export async function getKline(
   interval: string,
   startTime: number,
   endTime: number,
-) {
+): Promise<any> {
   const res = await fetchWithTimeout(
     `${BASE_URL}/kline?symbol=${symbol}&interval=${interval}&start_time=${startTime}&end_time=${endTime}`,
   );
@@ -70,13 +70,13 @@ export async function getKline(
   return res.json();
 }
 
-export async function getTrades(symbol: string) {
+export async function getTrades(symbol: string): Promise<any> {
   const res = await fetchWithTimeout(`${BASE_URL}/trades?symbol=${symbol}`);
   if (!res.ok) throw new Error(`Pacifica /trades failed: ${res.status}`);
   return res.json();
 }
 
-export async function getFundingHistory(symbol: string) {
+export async function getFundingHistory(symbol: string): Promise<any> {
   const res = await fetchWithTimeout(`${BASE_URL}/funding_rate/history?symbol=${symbol}`);
   if (!res.ok)
     throw new Error(`Pacifica /funding_rate/history failed: ${res.status}`);

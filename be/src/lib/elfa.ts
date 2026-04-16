@@ -13,7 +13,7 @@ function getHeaders() {
   };
 }
 
-export async function getTrendingTokens(timeWindow: string = "24h") {
+export async function getTrendingTokens(timeWindow: string = "24h"): Promise<any> {
   const res = await fetchWithTimeout(`${BASE_URL}/v2/aggregations/trending-tokens?timeWindow=${timeWindow}`, {
     headers: getHeaders(),
   });
@@ -33,7 +33,7 @@ export async function getTopMentions(ticker: string) {
   return res.json();
 }
 
-export async function getKeywordMentions(keywords: string[]) {
+export async function getKeywordMentions(keywords: string[]): Promise<any> {
   const q = keywords.slice(0, 5).join(",");
   const res = await fetchWithTimeout(`${BASE_URL}/v2/data/keyword-mentions?keywords=${encodeURIComponent(q)}`, {
     headers: getHeaders(),
@@ -42,7 +42,7 @@ export async function getKeywordMentions(keywords: string[]) {
   return res.json();
 }
 
-export async function getTrendingNarratives() {
+export async function getTrendingNarratives(): Promise<any> {
   const res = await fetchWithTimeout(`${BASE_URL}/v2/data/trending-narratives`, {
     headers: getHeaders(),
   });
@@ -54,7 +54,7 @@ export async function chatAnalysis(
   message: string,
   mode: "tokenAnalysis" | "macro" | "summary" | "chat" | "tokenIntro" | "accountAnalysis" = "tokenAnalysis",
   ticker?: string
-) {
+): Promise<any> {
   // Elfa API expects `message` (not `query`). The earlier name caused 400s.
   const body: Record<string, string> = { message, mode };
   if (ticker) body.ticker = ticker;
