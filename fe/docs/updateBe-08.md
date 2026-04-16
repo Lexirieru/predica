@@ -1,9 +1,9 @@
 # BE Update Cycle 08
 
-**Status:** 🟡 UNPUSHED
+**Status:** ✅ PUSHED — 2026-04-16 (sealed at `05427f2`)
 **Branch:** `james`
 **Started:** 2026-04-16
-**Sealed:** —
+**Sealed:** 2026-04-16
 
 ---
 
@@ -26,7 +26,7 @@ Spec lengkap + referensi implementasi yang belum di-commit ada di local working 
 
 ## 📦 Commits
 
-### (unpushed) — 2026-04-16
+### `05427f2` — 2026-04-16
 **Title:** feat(be): 5m + 15m parallel markets, duration column
 
 ### Konteks
