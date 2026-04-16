@@ -21,7 +21,7 @@ export async function getTrendingTokens(timeWindow: string = "24h"): Promise<any
   return res.json();
 }
 
-export async function getTopMentions(ticker: string) {
+export async function getTopMentions(ticker: string): Promise<any> {
   // Elfa returns empty data when timeWindow/pageSize/page are omitted — the
   // endpoint silently short-circuits to {total:0} instead of erroring. Pass
   // the required defaults so the validator and sentiment-proxy see real rows.
