@@ -34,6 +34,8 @@ export default function SwipeStack({
 }) {
   const currentMarketIndex = useStore((s) => s.currentMarketIndex);
   const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
+  const targetMarketKey = useStore((s) => s.targetMarketKey);
+  const setTargetMarketKey = useStore((s) => s.setTargetMarketKey);
   const [direction, setDirection] = useState(0);
   const containerRef = useRef<HTMLDivElement>(null);
   // Fix from fe-swipenit: lock transitions to prevent rapid-fire from trackpad
@@ -57,6 +59,27 @@ export default function SwipeStack({
       }
     }
   }, [markets, currentMarketIndex, setCurrentMarketIndex]);
+
+  // Cross-page navigation (e.g. clicking a card on /explore). targetMarketKey
+  // is set to `${symbol}:${durationMin}` by the caller; we resolve it against
+  // the current filtered list and jump there. Fallback to symbol-only match
+  // when the exact duration isn't currently displayed (e.g. user clicked a
+  // 15m market that's currently in upcoming state — show the 5m card instead
+  // of failing silently).
+  useEffect(() => {
+    if (!targetMarketKey || markets.length === 0) return;
+    let idx = markets.findIndex(
+      (m) => `${m.symbol}:${m.durationMin}` === targetMarketKey,
+    );
+    if (idx < 0) {
+      const symbol = targetMarketKey.split(":")[0];
+      idx = markets.findIndex((m) => m.symbol === symbol);
+    }
+    if (idx >= 0) {
+      setCurrentMarketIndex(idx);
+    }
+    setTargetMarketKey(null);
+  }, [targetMarketKey, markets, setCurrentMarketIndex, setTargetMarketKey]);
 
   const goTo = useCallback(
     (dir: number) => {
