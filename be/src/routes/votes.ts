@@ -105,7 +105,7 @@ router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => 
 // GET /api/vote/user/:wallet
 router.get("/user/:wallet", async (req: Request, res: Response) => {
   try {
-    res.json(await voteRepo.getByUser(req.params.wallet));
+    res.json(await voteRepo.getByUser(String(req.params.wallet)));
   } catch {
     res.status(500).json({ error: "Failed to fetch votes" });
   }

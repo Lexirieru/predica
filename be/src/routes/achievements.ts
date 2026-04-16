@@ -11,7 +11,7 @@ router.get("/", (_req: Request, res: Response) => {
 // GET /api/achievements/:wallet — badges this wallet has unlocked.
 router.get("/:wallet", async (req: Request, res: Response) => {
   try {
-    const wallet = req.params.wallet;
+    const wallet = String(req.params.wallet);
     if (!wallet || wallet.length < 20 || wallet.length > 64) {
       res.status(400).json({ error: "Invalid wallet" });
       return;

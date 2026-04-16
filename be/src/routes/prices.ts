@@ -17,7 +17,7 @@ router.get("/", async (_req: Request, res: Response) => {
 // GET /api/prices/kline/:symbol — candle data
 router.get("/kline/:symbol", async (req: Request, res: Response) => {
   try {
-    const { symbol } = req.params;
+    const symbol = String(req.params.symbol);
     const interval = (req.query.interval as string) || "1h";
     const endTime = Date.now();
     const startTime = endTime - 24 * 60 * 60 * 1000; // last 24h
@@ -43,7 +43,7 @@ const WINDOW_MS: Record<string, number> = {
 
 router.get("/candles/:symbol", async (req: Request, res: Response) => {
   try {
-    const sym = req.params.symbol.toUpperCase();
+    const sym = String(req.params.symbol).toUpperCase();
     const windowKey = (req.query.window as string) || "1h";
     const windowMs = WINDOW_MS[windowKey] ?? WINDOW_MS["1h"];
 
@@ -111,7 +111,7 @@ router.get("/candles/:symbol", async (req: Request, res: Response) => {
 // GET /api/prices/book/:symbol — orderbook
 router.get("/book/:symbol", async (req: Request, res: Response) => {
   try {
-    const data = await pacifica.getOrderbook(req.params.symbol);
+    const data = await pacifica.getOrderbook(String(req.params.symbol));
     res.json(data);
   } catch {
     res.status(502).json({ error: "Failed to fetch orderbook" });

@@ -58,7 +58,7 @@ router.get("/all", async (_req: Request, res: Response) => {
 // and the series of rounds shows below it.
 router.get("/symbol/:symbol", async (req: Request, res: Response) => {
   try {
-    const symbol = req.params.symbol;
+    const symbol = String(req.params.symbol);
     if (!symbol || symbol.length > 20) {
       res.status(400).json({ error: "Invalid symbol" });
       return;
@@ -77,7 +77,7 @@ router.get("/symbol/:symbol", async (req: Request, res: Response) => {
 // can pipe straight into a chart library.
 router.get("/:id/hype", async (req: Request, res: Response) => {
   try {
-    const market = await marketRepo.getById(req.params.id);
+    const market = await marketRepo.getById(String(req.params.id));
     if (!market) {
       res.status(404).json({ error: "Market not found" });
       return;
@@ -125,12 +125,12 @@ router.get("/:id/hype", async (req: Request, res: Response) => {
 // GET /api/markets/:id
 router.get("/:id", async (req: Request, res: Response) => {
   try {
-    const market = await marketRepo.getById(req.params.id);
+    const market = await marketRepo.getById(String(req.params.id));
     if (!market) {
       res.status(404).json({ error: "Market not found" });
       return;
     }
-    const votes = await voteRepo.getByMarket(req.params.id);
+    const votes = await voteRepo.getByMarket(String(req.params.id));
     res.json({ ...market, votes });
   } catch {
     res.status(500).json({ error: "Failed to fetch market" });

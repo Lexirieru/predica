@@ -6,7 +6,7 @@ const router = Router();
 // GET /api/portfolio/:wallet/stats — aggregated PnL summary for profile header.
 router.get("/:wallet/stats", async (req: Request, res: Response) => {
   try {
-    const { wallet } = req.params;
+    const wallet = String(req.params.wallet);
     if (!wallet || wallet.length < 20 || wallet.length > 64) {
       res.status(400).json({ error: "Invalid wallet" });
       return;
