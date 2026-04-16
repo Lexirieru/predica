@@ -141,25 +141,26 @@ describe("computeShareWeight", () => {
       expect(w).toBe(1);
     });
 
-    it("different duration values work (1m and 15m)", () => {
-      // 1m market, 75-25, halfway → weight 0.75 (duration-independent shape)
-      const w1 = computeShareWeight({
+    it("5m and 15m markets give same weight at same timeFraction", () => {
+      // Duration-independent shape: halfway through a 75-25 favorite market
+      // should yield 0.75 regardless of whether the round is 5 or 15 min.
+      const w5 = computeShareWeight({
         targetPoolBefore: 75,
         oppositePoolBefore: 25,
         deadline: DEADLINE,
-        now: DEADLINE - 30_000, // 30s of a 1m market = halfway
-        durationMin: 1,
+        now: DEADLINE - 2.5 * 60_000, // halfway through a 5m round
+        durationMin: 5,
       });
-      expect(w1).toBeCloseTo(0.75, 4);
-
       const w15 = computeShareWeight({
         targetPoolBefore: 75,
         oppositePoolBefore: 25,
         deadline: DEADLINE,
-        now: DEADLINE - 7.5 * 60_000, // halfway
+        now: DEADLINE - 7.5 * 60_000, // halfway through a 15m round
         durationMin: 15,
       });
+      expect(w5).toBeCloseTo(0.75, 4);
       expect(w15).toBeCloseTo(0.75, 4);
+      expect(w5).toBeCloseTo(w15, 6);
     });
 
     it("weight is monotonically non-increasing in `now` for a fixed favorite", () => {

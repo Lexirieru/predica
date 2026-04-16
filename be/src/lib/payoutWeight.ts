@@ -45,7 +45,7 @@ export interface WeightInputs {
   deadline: number;
   /** ms timestamp when the bet is being placed (server clock). */
   now: number;
-  /** Market duration in minutes, e.g. 1 / 5 / 15. */
+  /** Market round length in minutes (5 or 15). */
   durationMin: number;
 }
 

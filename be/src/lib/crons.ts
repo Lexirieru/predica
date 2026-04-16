@@ -372,19 +372,18 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// All markets are fixed 5-minute rounds — one cadence for every symbol.
-// horizonMin = how far ahead we pre-create the bucket lineup.
+// Two parallel duration series per symbol: 5m and 15m. 1m variants are
+// intentionally excluded — see feedback/memory "fixed_5min_duration".
+// Horizon differs so we don't over-generate 15m rows (fewer slots/hour).
 type DurationConfig = {
   durationMin: number;
   horizonMin: number;
-  symbols: "all" | Set<string>;
 };
 
 const MARKET_DURATIONS: DurationConfig[] = [
-  { durationMin: 5, horizonMin: 60, symbols: "all" },
+  { durationMin: 5, horizonMin: 60 },   // 12 slots pre-created
+  { durationMin: 15, horizonMin: 180 }, // 12 slots pre-created
 ];
-
-const MARKET_DURATION_MIN = 5;
 
 /**
  * Seed sentiment for a newly generated market. Two-factor proxy:
@@ -426,9 +425,9 @@ async function createBucket(
   sentiment: number,
   prices: Record<string, any>,
 ): Promise<boolean> {
-  // Idempotency scoped to (symbol, deadline, durationMin): different duration
-  // buckets may legitimately share a wall-clock deadline (e.g. a 5m and a 15m
-  // both ending at :15), so we don't want the shorter one to block the longer.
+  // Idempotency scoped to (symbol, deadline, durationMin): a 5m and a 15m
+  // bucket can legitimately share a wall-clock deadline (e.g. both ending at
+  // :15), so the shorter must not block the longer during re-runs.
   const existing = await marketRepo.getBySymbolDeadline(symbol, deadline, durationMin);
   if (existing) return false;
 
@@ -454,10 +453,10 @@ async function createBucket(
 }
 
 /**
- * Pre-create upcoming buckets for curated + trending symbols. One series per
- * entry in MARKET_DURATIONS (1m/5m/15m), each with its own horizon. Slots
- * align to clock boundaries so deadlines land on predictable times.
- * Idempotent — re-runs skip existing (symbol, deadline, durationMin) triples.
+ * Pre-create upcoming 5m and 15m buckets for curated + trending symbols.
+ * Both series run in parallel per symbol (so a user can pick between fast and
+ * long rounds on BTC). Deadlines align to clock boundaries — :00/:05/:10/…
+ * for 5m, :00/:15/:30/:45 for 15m. Idempotent on (symbol, deadline, durationMin).
  */
 async function ensureUpcomingBuckets() {
   try {
@@ -519,34 +518,25 @@ async function ensureUpcomingBuckets() {
       }
     }
 
-    // Per-duration slot schedule. Outer loop: duration config. Inner loop:
-    // eligible symbols for that duration. Innermost: deadlines up to horizon.
+    // Per-duration generation. For each config: slot-align deadlines, then
+    // walk forward up to its horizon. nextSlotBoundary returns the next aligned
+    // boundary (e.g. now=12:02, slot=5m → 12:05), but if its open time
+    // (deadline - durationMs) is already past, activator would immediately pop
+    // it live with a truncated countdown. Push the first deadline one slot
+    // forward when that happens so every bucket gets a FULL countdown on
+    // activation. Trade: up to one missing slot per duration after a mid-slot
+    // boot — acceptable.
     const now = Date.now();
     let created = 0;
 
     for (const cfg of MARKET_DURATIONS) {
       const slotMs = cfg.durationMin * 60_000;
-      // nextSlotBoundary returns the next clock-aligned boundary, but for a
-      // 15m slot at now=12:07 that's 12:15 — whose "open time" 12:00 is 7min
-      // in the past. The activator would immediately flip that bucket to
-      // active and users would see a market that starts its countdown at 8min
-      // instead of a fresh 15:00. Push the first deadline forward by a full
-      // slot whenever the aligned boundary's open time has already passed,
-      // so every bucket we create has a FULL duration countdown when it
-      // activates. Price: up to one slot of "no market for this duration"
-      // after server boot in the middle of a slot — acceptable trade.
       let firstDeadline = nextSlotBoundary(now, slotMs);
       if (firstDeadline - slotMs < now) firstDeadline += slotMs;
       const lastDeadline = now + cfg.horizonMin * 60_000;
 
-      const eligible =
-        cfg.symbols === "all"
-          ? activeSymbols
-          : new Set(Array.from(activeSymbols).filter((s) => (cfg.symbols as Set<string>).has(s)));
-
-      for (const symbol of eligible) {
-        const mentionGrowth = 0; // seed sentiment uses price only at creation
-        const sentiment = seedSentiment(prices[symbol], mentionGrowth);
+      for (const symbol of activeSymbols) {
+        const sentiment = seedSentiment(prices[symbol]);
         for (let deadline = firstDeadline; deadline <= lastDeadline; deadline += slotMs) {
           const ok = await createBucket(symbol, deadline, cfg.durationMin, sentiment, prices);
           if (ok) created++;
@@ -556,7 +546,7 @@ async function ensureUpcomingBuckets() {
 
     if (created > 0) {
       console.log(
-        `[Buckets] Pre-created ${created} upcoming buckets across ${activeSymbols.size} symbols (durations: ${MARKET_DURATIONS.map((d) => d.durationMin + "m").join("/")}).`,
+        `[Buckets] Pre-created ${created} upcoming buckets across ${activeSymbols.size} symbols (${MARKET_DURATIONS.map((d) => d.durationMin + "m").join(" + ")}).`,
       );
       syncCandleSubscriptions(Array.from(activeSymbols));
     }
@@ -566,9 +556,10 @@ async function ensureUpcomingBuckets() {
 }
 
 /**
- * Every 10s: transition upcoming → active when the bucket's open time (deadline
- * minus duration) has arrived. Stamps targetPrice = current mark price at the
- * moment of activation so users vote against a fair, real-time reference.
+ * Every 10s: transition upcoming → active when a bucket's open time
+ * (deadline minus its own durationMin) has arrived. Stamps targetPrice =
+ * current mark price at activation so users vote against a fair real-time
+ * reference.
  */
 export function startMarketActivatorCron() {
   cron.schedule("*/10 * * * * *", async () => {
@@ -585,7 +576,7 @@ export function startMarketActivatorCron() {
 
       for (const m of due) {
         const mark = prices[m.symbol.toUpperCase()];
-        const slotMs = (m.durationMin ?? MARKET_DURATION_MIN) * 60_000;
+        const slotMs = (m.durationMin ?? 5) * 60_000;
         const openedAt = Number(m.deadline) - slotMs;
         const stale = Date.now() - openedAt > 60_000;
 

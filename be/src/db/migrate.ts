@@ -110,8 +110,8 @@ async function migrate() {
         END IF;
       END $$;
 
-      -- Variable market durations (1m/5m/15m). Default 5 keeps existing rows
-      -- behaving as they did before this column existed.
+      -- Round length in minutes. 5 and 15 are the only valid values; default
+      -- 5 lets legacy rows keep their original semantics if any survive a wipe.
       ALTER TABLE markets ADD COLUMN IF NOT EXISTS duration_min INTEGER NOT NULL DEFAULT 5;
 
       -- Hybrid anti-late-bet payout weight. Default 0 triggers legacy behavior

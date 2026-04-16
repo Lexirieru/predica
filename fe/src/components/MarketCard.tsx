@@ -95,13 +95,12 @@ export default function MarketCard({
   }, [market.symbol]);
 
   // When a past bucket is selected, fetch a wider candle window covering its
-  // deadline and filter to the relevant slice (bucket duration + small pre/post
+  // deadline and filter to the relevant slice (5min bucket + small pre/post
   // padding). 6h window covers any realistic past bucket shown in the timeline.
   useEffect(() => {
     if (!selectedBucket) return;
     let cancelled = false;
-    const bucketMs = selectedBucket.durationMin * 60_000;
-    const start = selectedBucket.deadline - bucketMs - 3 * 60 * 1000; // bucket + 3min lead-in
+    const start = selectedBucket.deadline - 5 * 60_000 - 3 * 60 * 1000; // bucket + 3min lead-in
     const end = selectedBucket.deadline + 60_000; // 1min post-settlement
 
     fetchCandleSeries(selectedBucket.symbol, "6h")
@@ -125,10 +124,10 @@ export default function MarketCard({
   }, [selectedBucket]);
 
   useEffect(() => {
-    const windowMs = market.durationMin * 60_000;
+    const WINDOW_MS = 5 * 60_000;
     const tick = () => {
       const d = Math.max(0, market.deadline - Date.now());
-      const capped = Math.min(d, windowMs);
+      const capped = Math.min(d, WINDOW_MS);
       setCd({
         m: Math.floor(capped / 60000),
         s: Math.floor((capped % 60000) / 1000),
@@ -137,7 +136,7 @@ export default function MarketCard({
     tick();
     const i = setInterval(tick, 1000);
     return () => clearInterval(i);
-  }, [market.deadline, market.durationMin]);
+  }, [market.deadline]);
 
   // Real activity feed from WS
   useWebSocket("NEW_VOTE", (data) => {
