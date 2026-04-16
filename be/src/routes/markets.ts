@@ -75,47 +75,70 @@ router.get("/symbol/:symbol", async (req: Request, res: Response) => {
 // GET /api/markets/:id/hype — vote-ratio timeline (running yes/no pool over time).
 // Powers the "hype meter" sparkline. Response structure is normalized so FE
 // can pipe straight into a chart library.
+//
+// In-process cache keyed by marketId:
+//   - settled markets: timeline is immutable, cache forever (no revalidation).
+//   - active markets: 30s TTL, sparkline barely changes tick-to-tick.
+// Eviction: hard cap at 500 entries with oldest-first drop when over.
+type HypePayload = ReturnType<typeof buildHypeResponse>;
+const hypeCache = new Map<string, { payload: HypePayload; at: number; settled: boolean }>();
+const HYPE_CACHE_TTL_MS = 30_000;
+const HYPE_CACHE_MAX = 500;
+
+function buildHypeResponse(market: any, raw: Awaited<ReturnType<typeof voteRepo.getHypeTimeline>>) {
+  const timeline = raw.map((p) => {
+    const total = p.yes + p.no;
+    return {
+      t: p.t,
+      yesShare: total > 0 ? p.yes / total : 0.5,
+      noShare:  total > 0 ? p.no  / total : 0.5,
+      yesPool: p.yes,
+      noPool: p.no,
+      totalVotes: p.totalVotes,
+    };
+  });
+  const totalPool = market.yesPool + market.noPool;
+  const current = {
+    yesShare: totalPool > 0 ? market.yesPool / totalPool : 0.5,
+    noShare:  totalPool > 0 ? market.noPool  / totalPool : 0.5,
+    yesPool: market.yesPool,
+    noPool: market.noPool,
+    totalVoters: market.totalVoters,
+  };
+  return {
+    marketId: market.id,
+    symbol: market.symbol,
+    status: market.status,
+    current,
+    timeline,
+  };
+}
+
 router.get("/:id/hype", async (req: Request, res: Response) => {
   try {
-    const market = await marketRepo.getById(String(req.params.id));
+    const id = String(req.params.id);
+    const cached = hypeCache.get(id);
+    if (cached && (cached.settled || Date.now() - cached.at < HYPE_CACHE_TTL_MS)) {
+      res.json(cached.payload);
+      return;
+    }
+
+    const market = await marketRepo.getById(id);
     if (!market) {
       res.status(404).json({ error: "Market not found" });
       return;
     }
     const raw = await voteRepo.getHypeTimeline(market.id);
+    const payload = buildHypeResponse(market, raw);
 
-    // Normalize into yes-share fractions and pool snapshots.
-    const timeline = raw.map((p) => {
-      const total = p.yes + p.no;
-      return {
-        t: p.t,
-        yesShare: total > 0 ? p.yes / total : 0.5,
-        noShare:  total > 0 ? p.no  / total : 0.5,
-        yesPool: p.yes,
-        noPool: p.no,
-        totalVotes: p.totalVotes,
-      };
-    });
+    if (hypeCache.size >= HYPE_CACHE_MAX) {
+      // Map iteration order is insertion order → first key is oldest entry.
+      const oldest = hypeCache.keys().next().value;
+      if (oldest) hypeCache.delete(oldest);
+    }
+    hypeCache.set(id, { payload, at: Date.now(), settled: market.status === "settled" });
 
-    const current = {
-      yesShare: (market.yesPool + market.noPool) > 0
-        ? market.yesPool / (market.yesPool + market.noPool)
-        : 0.5,
-      noShare: (market.yesPool + market.noPool) > 0
-        ? market.noPool / (market.yesPool + market.noPool)
-        : 0.5,
-      yesPool: market.yesPool,
-      noPool: market.noPool,
-      totalVoters: market.totalVoters,
-    };
-
-    res.json({
-      marketId: market.id,
-      symbol: market.symbol,
-      status: market.status,
-      current,
-      timeline,
-    });
+    res.json(payload);
   } catch (err) {
     console.error("[Markets/hype] Error:", err);
     res.status(500).json({ error: "Failed to fetch hype" });

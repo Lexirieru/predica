@@ -45,6 +45,9 @@ export const votes = pgTable("votes", {
   return {
     marketIdx: index("idx_votes_market").on(table.marketId),
     userWalletIdx: index("idx_votes_user_wallet").on(table.userWallet),
+    // Composite index for user vote history: filter by wallet, order by time
+    // desc. Portfolio/profile endpoints scan backwards from newest.
+    userCreatedIdx: index("idx_votes_user_created").on(table.userWallet, table.createdAt),
   }
 });
 
@@ -58,6 +61,10 @@ export const users = pgTable("users", {
   losses: integer("losses").notNull().default(0),
   totalWagered: real("total_wagered").notNull().default(0),
   totalPnl: real("total_pnl").notNull().default(0),
+  // Maintained by settlement — peak per-vote profit / loss. Avoids a full
+  // votes rescan on every /portfolio/:wallet/stats request.
+  biggestWin: real("biggest_win").notNull().default(0),
+  biggestLoss: real("biggest_loss").notNull().default(0),
   createdAt: bigint("created_at", { mode: "number" }).notNull().default(tsDefault),
 });
 

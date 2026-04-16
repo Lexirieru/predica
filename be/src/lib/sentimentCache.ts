@@ -34,8 +34,29 @@ interface CacheEntry {
   fetchedAt: number;
 }
 
+// Hard cap the cache at CACHE_MAX entries. Map preserves insertion order,
+// so evicting the first key drops the oldest-inserted entry — effective LRU
+// when combined with `touchLru` on every read (delete+set re-inserts at tail).
+// Without this, the map grew unbounded: every unique symbol ever queried
+// added an entry that never got cleaned up.
+const CACHE_MAX = 500;
 const cache = new Map<string, CacheEntry>();
 const inflight = new Map<string, Promise<void>>();
+
+function touchLru(key: string, entry: CacheEntry) {
+  cache.delete(key);
+  cache.set(key, entry);
+}
+
+function setWithEviction(key: string, entry: CacheEntry) {
+  if (cache.has(key)) {
+    cache.delete(key);
+  } else if (cache.size >= CACHE_MAX) {
+    const oldest = cache.keys().next().value;
+    if (oldest) cache.delete(oldest);
+  }
+  cache.set(key, entry);
+}
 
 /**
  * Engagement-based fallback — weighted saturation score. Not true sentiment,
@@ -180,7 +201,7 @@ async function refreshLlm(symbol: string): Promise<void> {
 
       const existing = cache.get(symbol)?.result ?? (await computeEngagementProxy(symbol));
       if (parsed) {
-        cache.set(symbol, {
+        setWithEviction(symbol, {
           result: {
             ...existing,
             bullishPercent: parsed.bullishPercent,
@@ -194,7 +215,7 @@ async function refreshLlm(symbol: string): Promise<void> {
         });
       } else {
         // LLM returned text but couldn't parse — keep existing, just stamp time.
-        cache.set(symbol, {
+        setWithEviction(symbol, {
           result: { ...existing, refreshing: false, lastUpdated: Date.now() },
           fetchedAt: Date.now(),
         });
@@ -218,6 +239,8 @@ export async function getSentiment(symbol: string): Promise<SentimentResult> {
   const cached = cache.get(sym);
 
   if (cached && now - cached.fetchedAt < TTL_MS) {
+    // Move to MRU so LRU eviction favors unused symbols.
+    touchLru(sym, cached);
     return cached.result;
   }
 
@@ -225,7 +248,7 @@ export async function getSentiment(symbol: string): Promise<SentimentResult> {
   if (!cached) {
     const proxy = await computeEngagementProxy(sym);
     proxy.refreshing = LLM_ENABLED;
-    cache.set(sym, { result: proxy, fetchedAt: now });
+    setWithEviction(sym, { result: proxy, fetchedAt: now });
     refreshLlm(sym); // fire-and-forget
     return proxy;
   }

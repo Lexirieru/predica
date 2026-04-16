@@ -17,14 +17,14 @@ export async function getMarketInfo(): Promise<any> {
 // GET route on every client request and from the activator/settlement crons
 // every 10s. Without caching, a feed of 50 clients polling every few seconds
 // produces a burst of identical upstream calls — the upstream rate-limits
-// eventually bite. 5s is tighter than the 10s cron cadence so crons still see
-// fresh data but concurrent HTTP requests share a single upstream call.
+// eventually bite. TTL matches the cron cadence so settlement + activator
+// firing at the same second coalesce into a single upstream call.
 let pricesCache: { at: number; payload: unknown; inFlight: Promise<unknown> | null } = {
   at: 0,
   payload: null,
   inFlight: null,
 };
-const PRICES_TTL_MS = 5_000;
+const PRICES_TTL_MS = 10_000;
 
 export async function getPrices(): Promise<any> {
   const now = Date.now();

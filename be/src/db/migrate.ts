@@ -120,8 +120,15 @@ async function migrate() {
       -- carry a positive weight computed at insert time.
       ALTER TABLE votes ADD COLUMN IF NOT EXISTS share_weight REAL NOT NULL DEFAULT 0;
 
+      -- Pre-computed peak win/loss per user — settlement bumps these so
+      -- portfolio stats endpoint no longer rescans the entire votes history.
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS biggest_win  REAL NOT NULL DEFAULT 0;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS biggest_loss REAL NOT NULL DEFAULT 0;
+
       CREATE INDEX IF NOT EXISTS idx_votes_market ON votes(market_id);
       CREATE INDEX IF NOT EXISTS idx_votes_user_wallet ON votes(user_wallet);
+      -- Composite (user_wallet, created_at) for portfolio vote-history scan.
+      CREATE INDEX IF NOT EXISTS idx_votes_user_created ON votes(user_wallet, created_at);
       CREATE INDEX IF NOT EXISTS idx_markets_status ON markets(status);
       CREATE INDEX IF NOT EXISTS idx_tx_wallet ON transactions(wallet);
       CREATE INDEX IF NOT EXISTS idx_candle_symbol_time ON candle_snapshots(symbol, open_time);

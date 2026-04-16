@@ -5,7 +5,7 @@ import * as elfa from "./elfa";
 import { marketRepo, voteRepo } from "../db/dal";
 import { db } from "../db";
 import { votes, users, transactions, markets } from "../db/schema";
-import { eq, sql, inArray } from "drizzle-orm";
+import { eq, sql } from "drizzle-orm";
 import { broadcast } from "./websocket";
 import {
   startPacificaWs,
@@ -32,9 +32,10 @@ export function startSettlementCron() {
     isSettling = true;
 
     try {
-      const activeMarkets = await marketRepo.getActive();
-      const now = Date.now();
-      const expired = activeMarkets.filter((m) => Number(m.deadline) <= now);
+      // DB-side filter on (status, deadline) — uses idx_markets_status_deadline,
+      // so we never drag non-expired rows over the wire. Cap at 50/tick to keep
+      // a single settlement iteration bounded even if a backlog builds up.
+      const expired = await marketRepo.getExpiredDue(Date.now(), 50);
 
       if (expired.length === 0) {
         isSettling = false;
@@ -121,11 +122,14 @@ export function startSettlementCron() {
                     .set({ payout: o.payout, status: "won" })
                     .where(eq(votes.id, o.voteId));
 
+                  // biggest_win = max(existing, this profit) — computed in SQL
+                  // so settlement doesn't need to read the row first.
                   await tx.update(users)
                     .set({
                       balance: sql`${users.balance} + ${o.payout}`,
                       wins: sql`${users.wins} + 1`,
                       totalPnl: sql`${users.totalPnl} + ${o.profit}`,
+                      biggestWin: sql`GREATEST(${users.biggestWin}, ${o.profit})`,
                     })
                     .where(eq(users.wallet, o.wallet));
 
@@ -147,6 +151,7 @@ export function startSettlementCron() {
                     .set({
                       losses: sql`${users.losses} + 1`,
                       totalPnl: sql`${users.totalPnl} - ${o.amount}`,
+                      biggestLoss: sql`GREATEST(${users.biggestLoss}, ${o.amount})`,
                     })
                     .where(eq(users.wallet, o.wallet));
                 }

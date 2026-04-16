@@ -16,6 +16,22 @@ export const marketRepo = {
       orderBy: [asc(markets.deadline)],
     });
   },
+
+  /**
+   * Active markets whose deadline is at/past `now`, capped at `limit`.
+   * Used by settlement cron — one indexed query replaces getActive() +
+   * in-process filter, which scaled linearly with active-market count.
+   */
+  async getExpiredDue(now: number, limit = 50) {
+    return await db.query.markets.findMany({
+      where: and(
+        eq(markets.status, "active"),
+        sql`${markets.deadline} <= ${now}`,
+      ),
+      orderBy: [asc(markets.deadline)],
+      limit,
+    });
+  },
   async getAll(limit = 200) {
     return await db.query.markets.findMany({
       orderBy: [desc(markets.createdAt)],
@@ -314,25 +330,22 @@ export const userRepo = {
   },
 
   /**
-   * Derived portfolio stats. Reads aggregated counters from users (fast),
-   * then pulls biggest-win / biggest-loss via simple aggregations on votes.
-   * Returns null if user has never voted.
+   * Derived portfolio stats. All aggregated counters live on the users row,
+   * maintained incrementally by settlement — no votes-table rescan needed.
+   * `pending` is a narrow COUNT on (user_wallet, status='pending'), still
+   * served by idx_votes_user_wallet. Returns null if user has never voted.
    */
   async getPortfolioStats(wallet: string) {
     const user = await db.query.users.findFirst({ where: eq(users.wallet, wallet) });
     if (!user) return null;
 
-    // biggest_win = max(payout - amount) where status=won
-    // biggest_loss = max(amount) where status=lost
-    const aggRows = await db
+    const pendingRows = await db
       .select({
-        biggestWin: sql<number>`COALESCE(MAX(CASE WHEN ${votes.status} = 'won'  THEN ${votes.payout} - ${votes.amount} END), 0)`,
-        biggestLoss: sql<number>`COALESCE(MAX(CASE WHEN ${votes.status} = 'lost' THEN ${votes.amount} END), 0)`,
         pendingCount: sql<number>`COUNT(*) FILTER (WHERE ${votes.status} = 'pending')`,
       })
       .from(votes)
       .where(eq(votes.userWallet, wallet));
-    const agg = aggRows[0];
+    const pending = Number(pendingRows[0]?.pendingCount ?? 0);
 
     const settled = user.wins + user.losses;
     const winRate = settled > 0 ? user.wins / settled : 0;
@@ -345,14 +358,14 @@ export const userRepo = {
       totalVotes: user.totalVotes,
       wins: user.wins,
       losses: user.losses,
-      pending: Number(agg?.pendingCount ?? 0),
+      pending,
       winRate,
       totalWagered: user.totalWagered,
       totalPnl: user.totalPnl,
       roi,
       avgBet,
-      biggestWin: Number(agg?.biggestWin ?? 0),
-      biggestLoss: Number(agg?.biggestLoss ?? 0),
+      biggestWin: user.biggestWin,
+      biggestLoss: user.biggestLoss,
       totalDeposits: user.totalDeposits,
       totalWithdrawals: user.totalWithdrawals,
     };

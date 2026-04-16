@@ -128,10 +128,16 @@ app.get("/api/health", (_req, res) => {
 // Start cron jobs
 startSettlementCron();
 startPriceStream();
-warmElfaValidityCache().then(() => startMarketGeneratorCron());
 startMarketActivatorCron();
 startCandleCleanupCron();
-warmCandleCache();
+
+// Elfa validity and candle-cache warmers are independent — run in parallel so
+// cold-start latency is the max of the two, not the sum. Market generator
+// still waits on Elfa validity so the first bucket batch only picks symbols
+// that passed validation.
+Promise.all([warmElfaValidityCache(), warmCandleCache()]).then(() =>
+  startMarketGeneratorCron(),
+);
 
 server.listen(PORT, () => {
   console.log(`Predica backend running on http://localhost:${PORT}`);
