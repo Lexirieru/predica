@@ -55,7 +55,7 @@ export default function LeaderboardPage() {
             return (
               <div
                 key={entry.wallet}
-                className="flex items-center gap-3 p-3 rounded-2xl border border-white/[0.06] bg-white/[0.02]"
+                className="flex items-center gap-3 p-3 rounded-2xl border border-white/6 bg-white/2"
               >
                 {/* Rank */}
                 <div

@@ -66,7 +66,7 @@ export default function NavBar() {
 
   return (
     <nav
-      className="fixed bottom-0 left-0 right-0 z-50 bg-black/70 backdrop-blur-2xl border-t border-white/[0.06]"
+      className="fixed bottom-0 left-0 right-0 z-50 bg-black/70 backdrop-blur-2xl border-t border-white/6"
       role="navigation"
       aria-label="Main navigation"
     >

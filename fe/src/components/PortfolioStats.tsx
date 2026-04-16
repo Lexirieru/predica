@@ -21,9 +21,9 @@ function formatCurrency(v: number): string {
 export default function PortfolioStatsCard({ stats, loading }: Props) {
   if (loading) {
     return (
-      <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] mb-4 animate-pulse">
-        <div className="h-4 w-24 bg-white/[0.06] rounded mb-2" />
-        <div className="h-8 w-32 bg-white/[0.06] rounded" />
+      <div className="p-4 rounded-2xl bg-white/2 border border-white/6 mb-4 animate-pulse">
+        <div className="h-4 w-24 bg-white/6 rounded mb-2" />
+        <div className="h-8 w-32 bg-white/6 rounded" />
       </div>
     );
   }
@@ -34,7 +34,7 @@ export default function PortfolioStatsCard({ stats, loading }: Props) {
   const settled = stats.wins + stats.losses;
 
   return (
-    <div className="p-4 rounded-2xl bg-white/[0.02] border border-white/[0.06] mb-4">
+    <div className="p-4 rounded-2xl bg-white/2 border border-white/6 mb-4">
       {/* PnL headline */}
       <div className="flex items-end justify-between mb-3">
         <div>
@@ -73,7 +73,7 @@ export default function PortfolioStatsCard({ stats, loading }: Props) {
 
       {/* Win/Loss/Pending bar */}
       {stats.totalVotes > 0 && (
-        <div className="mt-3 pt-3 border-t border-white/[0.04]">
+        <div className="mt-3 pt-3 border-t border-white/4">
           <div className="flex items-center gap-2 text-[10px]">
             <span className="text-[#00b482]">● {stats.wins} won</span>
             <span className="text-[#dc3246]">● {stats.losses} lost</span>
@@ -87,7 +87,7 @@ export default function PortfolioStatsCard({ stats, loading }: Props) {
 
 function Stat({ label, value, color }: { label: string; value: string; color?: string }) {
   return (
-    <div className="p-2.5 rounded-xl bg-white/[0.02] border border-white/[0.04]">
+    <div className="p-2.5 rounded-xl bg-white/2 border border-white/4">
       <p className="text-white/30 text-[9px] uppercase tracking-wider">{label}</p>
       <p className="text-sm font-bold tabular-nums" style={{ color: color ?? "#fff" }}>
         {value}

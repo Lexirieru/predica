@@ -53,7 +53,7 @@ export default function SentimentBar({ symbol, fallback }: Props) {
             <span className="inline-block w-2 h-2 rounded-full border border-white/20 border-t-white/60 animate-spin" />
           )}
         </span>
-        <div className="flex-1 h-1 rounded-full bg-white/[0.04] overflow-hidden">
+        <div className="flex-1 h-1 rounded-full bg-white/4 overflow-hidden">
           <div
             className="h-full rounded-full transition-all duration-1000"
             style={{
@@ -73,7 +73,7 @@ export default function SentimentBar({ symbol, fallback }: Props) {
       </button>
 
       {expanded && summary && (
-        <div className="mt-2 p-2.5 rounded-lg bg-white/[0.03] border border-white/[0.06] text-[11px] text-white/60 leading-relaxed">
+        <div className="mt-2 p-2.5 rounded-lg bg-white/3 border border-white/6 text-[11px] text-white/60 leading-relaxed">
           {summary}
           {data && (
             <p className="text-[9px] text-white/20 mt-1.5">

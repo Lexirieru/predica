@@ -23,17 +23,6 @@ const WithdrawSchema = z.object({
   amount: z.coerce.number().positive().finite().min(MIN_AMOUNT).max(MAX_AMOUNT),
 });
 
-// Postgres advisory-lock key space for withdraw serialization (64-bit space).
-// We hash wallet string to a stable 31-bit int to stay away from collisions
-// with any other subsystem using advisory locks.
-function walletLockKey(wallet: string): number {
-  let h = 0;
-  for (let i = 0; i < wallet.length; i++) {
-    h = (h * 31 + wallet.charCodeAt(i)) | 0;
-  }
-  return Math.abs(h);
-}
-
 // POST /api/wallet/deposit
 router.post("/deposit", async (req: Request, res: Response) => {
   const parsed = DepositSchema.safeParse(req.body);
@@ -114,18 +103,11 @@ router.post("/withdraw", authMiddleware("WITHDRAW"), async (req: Request, res: R
   }
   const { wallet, amount: amountNum } = parsed.data;
 
-  const lockKey = walletLockKey(wallet);
-  // pg_try_advisory_lock returns true if lock acquired, false if already held.
-  // This serializes concurrent withdraws for the same wallet across all BE instances.
-  const lockResult = await db.execute(
-    sql`SELECT pg_try_advisory_lock(${lockKey}) AS locked`,
-  );
-  const locked = (lockResult as unknown as { rows: { locked: boolean }[] }).rows?.[0]?.locked;
-  if (!locked) {
-    res.status(429).json({ error: "Withdrawal already in progress" });
-    return;
-  }
-
+  // NOTE: Previously used pg_advisory_lock to serialize concurrent withdraws,
+  // but it's incompatible with Supabase transaction pooler (port 6543) — locks
+  // get orphaned because acquire/release land on different physical connections.
+  // The atomic conditional debit below is sufficient: if two concurrent withdraws
+  // race, only one will succeed in debiting; the other gets INSUFFICIENT_BALANCE.
   const txId = uuid();
   let debited = false;
 
@@ -208,12 +190,6 @@ router.post("/withdraw", authMiddleware("WITHDRAW"), async (req: Request, res: R
       }
     }
     res.status(500).json({ error: "Withdrawal failed" });
-  } finally {
-    try {
-      await db.execute(sql`SELECT pg_advisory_unlock(${lockKey})`);
-    } catch (unlockErr) {
-      console.error("[Withdraw] Failed to release advisory lock:", unlockErr);
-    }
   }
 });
 

@@ -1,12 +1,20 @@
 "use client";
 
-import { useEffect, useRef, useCallback } from "react";
+import { useEffect, useMemo, useRef, useCallback } from "react";
 import type { PredictionMarket } from "@/lib/types";
 import { useMarketSeries } from "@/hooks/useMarketSeries";
 import BucketPill from "./BucketPill";
 
 interface Props {
   symbol: string;
+  /**
+   * Filter timeline to only show buckets matching this duration. Without this
+   * the BE returns mixed 1m/5m/15m series for a symbol — `live` then refers
+   * to a different bucket than the one the user is viewing in the card,
+   * producing a visible mismatch (e.g. 5m card with countdown 1:24 paired
+   * with a "live" pill at 8:30 because BE picked the 15m bucket).
+   */
+  durationMin?: number;
   /** Number of past buckets to show in the lineup. Default 5. */
   pastLimit?: number;
   /** Number of upcoming buckets to show. Default 4. */
@@ -24,12 +32,26 @@ interface Props {
  */
 export default function SymbolTimeline({
   symbol,
+  durationMin,
   pastLimit = 5,
   upcomingLimit = 4,
   selectedBucketId,
   onBucketClick,
 }: Props) {
-  const { series, loading } = useMarketSeries(symbol, pastLimit);
+  const { series: rawSeries, loading } = useMarketSeries(symbol, pastLimit * 3);
+  // Filter the BE series to a single duration so past/live/upcoming all match
+  // the variant the user is viewing. We over-fetch (pastLimit * 3) above to
+  // compensate for the post-filter reduction.
+  const series = useMemo(() => {
+    if (!rawSeries) return null;
+    if (durationMin === undefined) return rawSeries;
+    return {
+      symbol: rawSeries.symbol,
+      past: rawSeries.past.filter((m) => m.durationMin === durationMin),
+      live: rawSeries.live?.durationMin === durationMin ? rawSeries.live : null,
+      upcoming: rawSeries.upcoming.filter((m) => m.durationMin === durationMin),
+    };
+  }, [rawSeries, durationMin]);
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Mouse drag-to-scroll for desktop. Mobile users get native pan-x via
@@ -99,7 +121,7 @@ export default function SymbolTimeline({
       <div className="px-5 py-2">
         <div className="flex gap-1.5">
           {Array.from({ length: 5 }).map((_, i) => (
-            <div key={i} className="h-10 w-[88px] rounded-lg bg-white/[0.03] animate-pulse shrink-0" />
+            <div key={i} className="h-10 w-[88px] rounded-lg bg-white/3 animate-pulse shrink-0" />
           ))}
         </div>
       </div>
@@ -114,7 +136,17 @@ export default function SymbolTimeline({
   if (!hasAny) return null;
 
   return (
-    <div className="px-5 py-2">
+    // Wrapper has relative + mask to fade out overflowing pills on the right
+    // edge. Without it, the last pill gets cut in half at the card border.
+    <div
+      className="px-5 py-2 relative"
+      style={{
+        maskImage:
+          "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+        WebkitMaskImage:
+          "linear-gradient(to right, black 0, black calc(100% - 28px), transparent 100%)",
+      }}
+    >
       {selectedBucketId && (
         <div className="flex justify-end mb-1.5">
           <button

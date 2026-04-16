@@ -63,19 +63,26 @@ export default function PnlChart({ votes }: Props) {
     }, []);
 
     // Prepend a zero baseline at the range start (or earliest vote).
+    const baselineTime = Math.floor(
+      (cutoff > 0 ? cutoff : filtered[0]?.createdAt ?? now) / 1000,
+    );
     const seeded = points.length > 0
-      ? [
-          {
-            time: Math.floor((cutoff > 0 ? cutoff : filtered[0].createdAt) / 1000) as Time,
-            value: 0,
-          },
-          ...points,
-        ]
+      ? [{ time: baselineTime as Time, value: 0 }, ...points]
       : points;
+
+    // lightweight-charts requires strictly-ascending time. Two votes in the
+    // same second (or a vote at the exact baseline time) would crash setData.
+    // Dedupe by keeping the last value for any repeated timestamp, then drop
+    // earlier duplicates.
+    const byTime = new Map<number, number>();
+    for (const p of seeded) byTime.set(p.time as number, p.value as number);
+    const deduped: LineData<Time>[] = Array.from(byTime.entries())
+      .sort((a, b) => a[0] - b[0])
+      .map(([t, v]) => ({ time: t as Time, value: v }));
 
     const total = points.length > 0 ? (points[points.length - 1].value as number) : 0;
     return {
-      series: seeded,
+      series: deduped,
       summary: { total, count: filtered.length },
     };
   }, [votes, range, now]);
@@ -156,7 +163,7 @@ export default function PnlChart({ votes }: Props) {
   }, [series, summary.total]);
 
   return (
-    <div className="rounded-2xl bg-white/[0.02] border border-white/[0.06] p-4 mb-4">
+    <div className="rounded-2xl bg-white/2 border border-white/6 p-4 mb-4">
       {/* Header + range filter */}
       <div className="flex items-center justify-between mb-3">
         <div>

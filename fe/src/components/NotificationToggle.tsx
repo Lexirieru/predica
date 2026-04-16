@@ -75,7 +75,7 @@ export default function NotificationToggle() {
 
   if (state.kind === "loading") {
     return (
-      <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex items-center gap-3">
+      <div className="p-3 rounded-2xl bg-white/2 border border-white/6 flex items-center gap-3">
         <div className="w-4 h-4 border-2 border-white/20 border-t-white rounded-full animate-spin" />
         <p className="text-white/40 text-xs">Checking notifications…</p>
       </div>
@@ -84,7 +84,7 @@ export default function NotificationToggle() {
 
   if (state.kind === "unavailable") {
     return (
-      <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06]">
+      <div className="p-3 rounded-2xl bg-white/2 border border-white/6">
         <p className="text-white/60 text-xs font-medium mb-0.5">Push Notifications</p>
         <p className="text-white/30 text-[11px]">{state.reason}</p>
       </div>
@@ -95,7 +95,7 @@ export default function NotificationToggle() {
   const busy = state.kind === "busy";
 
   return (
-    <div className="p-3 rounded-2xl bg-white/[0.02] border border-white/[0.06] flex items-center justify-between gap-3">
+    <div className="p-3 rounded-2xl bg-white/2 border border-white/6 flex items-center justify-between gap-3">
       <div className="flex-1 min-w-0">
         <p className="text-white text-xs font-medium">Push Notifications</p>
         <p className="text-white/30 text-[11px] leading-tight">
