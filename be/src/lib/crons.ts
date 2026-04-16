@@ -372,13 +372,8 @@ function shuffle<T>(arr: T[]): T[] {
   return a;
 }
 
-// Market duration variety. Each entry produces its own parallel bucket series.
-//   - horizonMin: how far ahead we pre-create buckets for that duration.
-//     1m has a tight horizon because 60 buckets/hour × many symbols explodes
-//     row count fast. 15m has a wide horizon so the upcoming lineup is visible.
-//   - symbols: "all" = every active symbol; otherwise a whitelist. 1m is
-//     restricted to the top-liquidity majors so rapid-fire markets stay on
-//     tokens with reliable mark-price streams.
+// All markets are fixed 5-minute rounds — one cadence for every symbol.
+// horizonMin = how far ahead we pre-create the bucket lineup.
 type DurationConfig = {
   durationMin: number;
   horizonMin: number;
@@ -386,14 +381,9 @@ type DurationConfig = {
 };
 
 const MARKET_DURATIONS: DurationConfig[] = [
-  { durationMin: 1, horizonMin: 15, symbols: new Set(["BTC", "ETH", "SOL"]) },
   { durationMin: 5, horizonMin: 60, symbols: "all" },
-  { durationMin: 15, horizonMin: 180, symbols: "all" },
 ];
 
-// Legacy constant kept for seedSentiment signatures / tests that still
-// reference a single duration. New code should read durationMin from the
-// market row instead.
 const MARKET_DURATION_MIN = 5;
 
 /**

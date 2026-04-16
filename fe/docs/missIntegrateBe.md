@@ -317,8 +317,8 @@ Biar partner FE tau konteksnya:
 - Pastikan komponen asset/logo handle symbol beragam (icon fallback)
 
 ### Market Duration
-- Semua market sekarang **fixed 5 menit**
-- Kalau ada hardcoded copy "1 min" / "15 min" → simplify ke 5 min
+- Semua market **fixed 5 menit** — semua symbol, satu cadence.
+- Kalau ada hardcoded copy "1 min" / "15 min" → simplify ke 5 min.
 
 ### Database
 - Migrate dari SQLite ke **Postgres (Supabase)**

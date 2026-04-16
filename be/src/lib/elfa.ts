@@ -22,7 +22,11 @@ export async function getTrendingTokens(timeWindow: string = "24h") {
 }
 
 export async function getTopMentions(ticker: string) {
-  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/top-mentions?ticker=${ticker}`, {
+  // Elfa returns empty data when timeWindow/pageSize/page are omitted — the
+  // endpoint silently short-circuits to {total:0} instead of erroring. Pass
+  // the required defaults so the validator and sentiment-proxy see real rows.
+  const qs = `ticker=${encodeURIComponent(ticker)}&timeWindow=24h&pageSize=10&page=1`;
+  const res = await fetchWithTimeout(`${BASE_URL}/v2/data/top-mentions?${qs}`, {
     headers: getHeaders(),
   });
   if (!res.ok) throw new Error(`Elfa top-mentions failed: ${res.status}`);
