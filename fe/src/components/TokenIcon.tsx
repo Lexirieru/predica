@@ -30,6 +30,7 @@ const LOGOS: Record<string, string> = {
   PUMP: "https://assets.coingecko.com/coins/images/67164/standard/pump.jpg?1751949376",
   BCH: "https://assets.coingecko.com/coins/images/780/standard/bitcoin-cash-circle.png?1696501932",
   XMR: "https://assets.coingecko.com/coins/images/69/standard/monero_logo.png?1696501460",
+  WLFI: "https://assets.coingecko.com/coins/images/50767/standard/wlfi.png?1756438915",
 };
 
 interface Props {

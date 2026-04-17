@@ -45,10 +45,19 @@ export default function NotificationToggle() {
     return () => { cancelled = true; };
   }, []);
 
-  const canToggle = isConnected && !!address && !!walletProvider && state.kind === "ready";
+  // Don't gate the toggle on walletProvider being defined — Reown's
+  // useAppKitProvider sometimes returns undefined briefly after a page reload
+  // even when the wallet is otherwise connected, leaving the button stuck
+  // disabled with no way to recover. Check it at click time instead and
+  // surface a clear "reconnect" hint if it's missing then.
+  const canToggle = isConnected && !!address && state.kind === "ready";
 
   const handleToggle = async () => {
-    if (!canToggle || !address || !walletProvider) return;
+    if (!canToggle || !address) return;
+    if (!walletProvider) {
+      setMessage("Wallet not ready — try reconnecting");
+      return;
+    }
     const was = (state as { enabled: boolean }).enabled;
     setState({ kind: "busy", was });
     setMessage("");
