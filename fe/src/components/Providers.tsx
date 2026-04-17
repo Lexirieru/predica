@@ -16,7 +16,10 @@ createAppKit({
   metadata: {
     name: "Predica",
     description: "Prediction markets powered by Pacifica",
-    url: "http://localhost:3000",
+    // Dynamic so the metadata url matches wherever the app is actually
+    // hosted (localhost, vercel preview, prod). SSR gets empty string —
+    // AppKit only consumes this in the browser for WalletConnect sessions.
+    url: typeof window !== "undefined" ? window.location.origin : "",
     icons: [],
   },
   themeMode: "dark",

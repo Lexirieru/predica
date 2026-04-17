@@ -25,6 +25,11 @@ const VoteSchema = z.object({
     .max(MAX_VOTE_AMOUNT, `Maximum vote ${MAX_VOTE_AMOUNT}`),
 });
 
+// Simple in-memory rate limiting for voting: 1 vote per 2 seconds per wallet.
+// Prevents spamming small votes that could cause DB locks or unfair pool manipulation.
+const lastVoteTime: Record<string, number> = {};
+const VOTE_COOLDOWN_MS = 2000;
+
 // POST /api/vote — atomic: debit balance, insert vote, update pool, upsert user stats
 router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => {
   const parsed = VoteSchema.safeParse(req.body);
@@ -33,6 +38,14 @@ router.post("/", authMiddleware("VOTE"), async (req: Request, res: Response) => 
     return;
   }
   const { marketId, userWallet, side, amount: amountNum } = parsed.data;
+
+  // Rate limit check
+  const now = Date.now();
+  if (lastVoteTime[userWallet] && now - lastVoteTime[userWallet] < VOTE_COOLDOWN_MS) {
+    res.status(429).json({ error: "Please wait 2 seconds between votes." });
+    return;
+  }
+  lastVoteTime[userWallet] = now;
 
   try {
 

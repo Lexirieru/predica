@@ -218,23 +218,31 @@ export function startSettlementCron() {
 // Throttle DB writes per symbol to at most once per BROADCAST_INTERVAL_MS.
 // Pacifica streams price ticks frequently (often sub-second); writing every
 // tick would hammer the DB. Broadcast over our WS stays real-time.
-const BROADCAST_INTERVAL_MS = 1_000;
+const DB_WRITE_INTERVAL_MS = 2000; // Increased to 2s for DB safety
 const lastPersist: Record<string, number> = {};
 
 export function startPriceStream() {
   onPrices(async (ticks: PriceTick[]) => {
     try {
-      const activeMarkets = await marketRepo.getActive();
-      if (activeMarkets.length === 0) return;
-
+      // 1. Immediate Broadcast for UI Smoothness
       const priceMap: Record<string, number> = {};
+      const updates: Record<string, number> = {};
+      
       for (const t of ticks) {
         const sym = t.symbol.toUpperCase();
         const mark = parseFloat(t.mark);
-        if (mark > 0) priceMap[sym] = mark;
+        if (mark > 0) {
+          priceMap[sym] = mark;
+          updates[sym] = mark;
+        }
       }
 
-      const updates: Record<string, number> = {};
+      if (Object.keys(updates).length > 0) {
+        broadcast("PRICE_UPDATE", updates);
+      }
+
+      // 2. Throttled DB Persistence
+      const activeMarkets = await marketRepo.getActive();
       const now = Date.now();
 
       for (const market of activeMarkets) {
@@ -242,18 +250,14 @@ export function startPriceStream() {
         const mark = priceMap[sym];
         if (!mark) continue;
 
-        updates[sym] = mark;
-
-        if (now - (lastPersist[sym] || 0) >= BROADCAST_INTERVAL_MS) {
+        if (now - (lastPersist[sym] || 0) >= DB_WRITE_INTERVAL_MS) {
           lastPersist[sym] = now;
           marketRepo.updatePrice(market.id, mark).catch(() => {});
         }
       }
-
-      if (Object.keys(updates).length > 0) {
-        broadcast("PRICE_UPDATE", updates);
-      }
-    } catch {}
+    } catch (err) {
+      // Silent fail for price stream logic to prevent crash
+    }
   });
 
   onCandle((tick: CandleTick) => {
