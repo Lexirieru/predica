@@ -50,8 +50,8 @@ export default function ExplorePage() {
   ];
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-4">
-      <h1 className="text-xl font-bold text-white mb-4">Explore</h1>
+    <div className="h-full overflow-y-auto px-4 md:px-6 py-4 md:py-6 md:max-w-[1200px] md:mx-auto w-full">
+      <h1 className="text-xl md:text-3xl font-bold text-white mb-4 md:mb-6">Explore</h1>
 
       {/* Search */}
       <div className="relative mb-3">
@@ -98,7 +98,7 @@ export default function ExplorePage() {
           <p className="text-sm">No markets found</p>
         </div>
       ) : (
-        <div className="space-y-2.5">
+        <div className="space-y-2.5 md:space-y-0 md:grid md:grid-cols-2 lg:grid-cols-3 md:gap-3">
           {filtered.map((market) => {
             const total = market.yesPool + market.noPool;
             const yesPercent = total > 0 ? Math.round((market.yesPool / total) * 100) : 50;

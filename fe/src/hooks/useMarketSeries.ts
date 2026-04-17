@@ -32,13 +32,18 @@ export function useMarketSeries(symbol: string | undefined, pastLimit = 12) {
   }, [load]);
 
   // Any resolution for this symbol → refetch so past bucket lineup updates.
+  // Optional-chaining the array reads: in transient states (initial fetch
+  // partially landed, or BE returns an unexpected shape) past/upcoming can
+  // momentarily be undefined, and `.some()` on undefined throws "Cannot read
+  // properties of undefined (reading 'some')" — propagated up as a runtime
+  // overlay with a misleading source map.
   useWebSocket("MARKET_RESOLVED", (data) => {
     const d = data as { marketId: string };
     if (!symbol || !series) return;
     const isOurs =
       series.live?.id === d.marketId ||
-      series.past.some((m) => m.id === d.marketId) ||
-      series.upcoming.some((m) => m.id === d.marketId);
+      series.past?.some((m) => m.id === d.marketId) ||
+      series.upcoming?.some((m) => m.id === d.marketId);
     if (isOurs) load();
   });
 

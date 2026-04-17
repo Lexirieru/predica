@@ -132,6 +132,7 @@ export default function TradeModal() {
             onClick={closeTradeModal}
             className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm"
           />
+          <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center pointer-events-none">
           <motion.div
             initial={{ transform: "translateY(100%) scale(0.95)", opacity: 0 }}
             animate={{ transform: "translateY(0%) scale(1)", opacity: 1 }}
@@ -139,14 +140,14 @@ export default function TradeModal() {
             transition={{ type: "spring", stiffness: 300, damping: 30 }}
             drag="y" dragConstraints={{ top: 0 }} dragElastic={0.2}
             onDragStart={handleDragStart} onDragEnd={handleDragEnd}
-            className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-[70] rounded-t-[28px] border-t overflow-hidden"
+            className="w-full max-w-[430px] md:max-w-[480px] rounded-t-[28px] md:rounded-2xl border-t md:border overflow-hidden pointer-events-auto"
             style={{ background: "linear-gradient(180deg, #151515 0%, #111 100%)", borderColor: `${colorHex}15` }}
             role="dialog" aria-modal="true"
           >
-            <div className="flex justify-center pt-3 pb-1">
+            <div className="flex justify-center pt-3 pb-1 md:hidden">
               <div className="w-10 h-1 rounded-full bg-white/15" />
             </div>
-            <div className="px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+            <div className="px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:p-6">
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <h3 className="text-white text-lg font-bold">Buy <span style={{ color: colorHex }}>{label}</span></h3>
@@ -246,6 +247,7 @@ export default function TradeModal() {
               </button>
             </div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

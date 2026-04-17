@@ -1,9 +1,9 @@
 "use client";
 
 import { useState, useEffect, useRef } from "react";
+import dynamic from "next/dynamic";
 import { PredictionMarket, Candle } from "@/lib/types";
 import { useStore } from "@/store/useStore";
-import PriceChart from "./PriceChart";
 import LiveTrades from "./LiveTrades";
 import SentimentBar from "./SentimentBar";
 import SymbolTimeline from "./SymbolTimeline";
@@ -12,6 +12,15 @@ import { useWebSocket } from "@/hooks/useWebSocket";
 import { useNow } from "@/hooks/useNow";
 import { useCandlesFor } from "@/hooks/useCandlesFor";
 import { fetchCandleSeries } from "@/lib/api";
+
+// PriceChart wraps lightweight-charts, which has top-level module code that
+// touches DOM globals. Turbopack 16 sometimes evaluates the module during page
+// bundling and trips on `someArray.some(...)` against an undefined global,
+// surfacing as "Cannot read properties of undefined (reading 'some')" with a
+// misleading source map pointing at the import line. Loading it via
+// next/dynamic with ssr:false defers evaluation to after client mount, which
+// sidesteps the issue without touching the chart code itself.
+const PriceChart = dynamic(() => import("./PriceChart"), { ssr: false });
 
 // 5 significant digits (matches Pacifica display).
 //   74755   → 74,755

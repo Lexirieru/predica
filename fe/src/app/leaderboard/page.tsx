@@ -34,9 +34,9 @@ export default function LeaderboardPage() {
   const truncate = (addr: string) => `${addr.slice(0, 4)}...${addr.slice(-4)}`;
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-4">
-      <h1 className="text-xl font-bold text-white mb-1">Leaderboard</h1>
-      <p className="text-white/30 text-sm mb-5">Top predictors by profit</p>
+    <div className="h-full overflow-y-auto px-4 md:px-6 py-4 md:py-6 md:max-w-[800px] md:mx-auto w-full">
+      <h1 className="text-xl md:text-3xl font-bold text-white mb-1">Leaderboard</h1>
+      <p className="text-white/30 text-sm md:text-base mb-5 md:mb-6">Top predictors by profit</p>
 
       {loading ? (
         <div className="flex justify-center pt-20">

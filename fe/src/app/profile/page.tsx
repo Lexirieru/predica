@@ -10,7 +10,9 @@ import dynamic from "next/dynamic";
 // those bytes until the user actually opens one of the modals.
 const DepositModal = dynamic(() => import("@/components/DepositModal"), { ssr: false });
 const WithdrawModal = dynamic(() => import("@/components/WithdrawModal"), { ssr: false });
-import PnlChart from "@/components/PnlChart";
+// PnlChart wraps lightweight-charts — same Turbopack module-evaluation
+// issue as PriceChart, defer to client-only via dynamic.
+const PnlChart = dynamic(() => import("@/components/PnlChart"), { ssr: false });
 import NotificationToggle from "@/components/NotificationToggle";
 
 // All timestamps render in UTC — consistent across every user regardless of
@@ -128,10 +130,10 @@ export default function ProfilePage() {
   }
 
   return (
-    <div className="h-full overflow-y-auto px-4 py-4">
+    <div className="h-full overflow-y-auto px-4 md:px-6 py-4 md:py-6 md:max-w-[900px] md:mx-auto w-full">
       {/* Header */}
-      <div className="mb-4">
-        <h1 className="text-xl font-bold text-white">Profile</h1>
+      <div className="mb-4 md:mb-6">
+        <h1 className="text-xl md:text-3xl font-bold text-white">Profile</h1>
         <p className="text-white/30 text-sm font-mono">{wallet ? truncate(wallet) : ""}</p>
       </div>
 

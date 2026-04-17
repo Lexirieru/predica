@@ -119,16 +119,18 @@ export default function DepositModal({ open, onClose, onSuccess }: Props) {
         <>
           <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} exit={{ opacity: 0 }}
             onClick={onClose} className="fixed inset-0 z-[60] bg-black/60 backdrop-blur-sm" />
-          <motion.div
-            initial={{ transform: "translateY(100%) scale(0.95)", opacity: 0 }}
-            animate={{ transform: "translateY(0%) scale(1)", opacity: 1 }}
-            exit={{ transform: "translateY(100%) scale(0.98)", opacity: 0 }}
-            transition={{ type: "spring", stiffness: 300, damping: 30 }}
-            className="fixed bottom-0 left-1/2 -translate-x-1/2 w-full max-w-[430px] z-[70] rounded-t-[28px] border-t border-[#00D1A9]/15 overflow-hidden"
-            style={{ background: "linear-gradient(180deg, #151515 0%, #111 100%)" }}
-          >
-            <div className="flex justify-center pt-3 pb-1"><div className="w-10 h-1 rounded-full bg-white/15" /></div>
-            <div className="px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))]">
+          {/* Flex container: bottom-aligned on mobile, centered on desktop */}
+          <div className="fixed inset-0 z-[70] flex items-end md:items-center justify-center pointer-events-none">
+            <motion.div
+              initial={{ transform: "translateY(100%) scale(0.95)", opacity: 0 }}
+              animate={{ transform: "translateY(0%) scale(1)", opacity: 1 }}
+              exit={{ transform: "translateY(100%) scale(0.98)", opacity: 0 }}
+              transition={{ type: "spring", stiffness: 300, damping: 30 }}
+              className="w-full max-w-[430px] md:max-w-[480px] rounded-t-[28px] md:rounded-2xl border-t md:border border-[#00D1A9]/15 overflow-hidden pointer-events-auto"
+              style={{ background: "linear-gradient(180deg, #151515 0%, #111 100%)" }}
+            >
+              <div className="flex justify-center pt-3 pb-1 md:hidden"><div className="w-10 h-1 rounded-full bg-white/15" /></div>
+              <div className="px-5 pb-[calc(1.5rem+env(safe-area-inset-bottom))] md:p-6">
               <div className="flex items-center justify-between mb-4">
                 <div>
                   <h3 className="text-white text-lg font-bold">Deposit USDP</h3>
@@ -194,6 +196,7 @@ export default function DepositModal({ open, onClose, onSuccess }: Props) {
               </button>
             </div>
           </motion.div>
+          </div>
         </>
       )}
     </AnimatePresence>

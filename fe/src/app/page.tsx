@@ -2,10 +2,13 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import SwipeStack from "@/components/SwipeStack";
+import DesktopFeed from "@/components/DesktopFeed";
 import { useMarkets } from "@/hooks/useMarkets";
+import { useIsDesktop } from "@/hooks/useIsDesktop";
 
 export default function FeedPage() {
   const { markets, loading, refetch } = useMarkets();
+  const isDesktop = useIsDesktop();
 
   // Settled market IDs the user has dismissed via the "Go to live market"
   // button. bySymbol skips these so the feed advances to the next live bucket.
@@ -108,7 +111,11 @@ export default function FeedPage() {
 
   return (
     <div className="h-full">
-      <SwipeStack markets={activeMarkets} onAdvance={handleAdvance} />
+      {isDesktop ? (
+        <DesktopFeed markets={activeMarkets} onAdvance={handleAdvance} />
+      ) : (
+        <SwipeStack markets={activeMarkets} onAdvance={handleAdvance} />
+      )}
     </div>
   );
 }

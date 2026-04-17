@@ -68,9 +68,14 @@ export default function RootLayout({
     >
       <body className="h-full bg-[#0a0a0a] text-white">
         <Providers>
-          <div className="max-w-[430px] mx-auto h-full flex flex-col relative">
+          {/* Mobile shell stays capped at 430px (TikTok-feed format).
+              Desktop ≥ md: full viewport width, no bottom-nav padding (the
+              bottom NavBar is hidden via md:hidden, top Header gains inline
+              tabs). Pages that want a desktop-specific layout swap content
+              via useIsDesktop() — the shell itself is layout-agnostic. */}
+          <div className="max-w-[430px] mx-auto md:max-w-none md:mx-0 h-full flex flex-col relative">
             <Header />
-            <main className="flex-1 pt-14 pb-16 overflow-hidden">
+            <main className="flex-1 pt-14 md:pt-16 pb-16 md:pb-0 overflow-hidden">
               {children}
             </main>
             <NavBar />

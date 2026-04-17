@@ -58,9 +58,12 @@ export default function SymbolTimeline({
       rawSeries.live?.durationMin === durationMin ? rawSeries.live : null;
     return {
       symbol: rawSeries.symbol,
-      past: rawSeries.past.filter((m) => m.durationMin === durationMin),
+      // Defensive: BE response may transiently omit past/upcoming (e.g. when a
+      // symbol was just promoted and has no settled history yet). `.filter()`
+      // on undefined throws — guard with ?? [].
+      past: (rawSeries.past ?? []).filter((m) => m.durationMin === durationMin),
       live: filteredLive ?? (currentLive?.status === "active" ? currentLive : null),
-      upcoming: rawSeries.upcoming.filter((m) => m.durationMin === durationMin),
+      upcoming: (rawSeries.upcoming ?? []).filter((m) => m.durationMin === durationMin),
     };
   }, [rawSeries, durationMin, currentLive]);
   const scrollRef = useRef<HTMLDivElement>(null);
