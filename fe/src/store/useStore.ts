@@ -29,11 +29,20 @@ interface StoreState {
   balance: number;
   walletAddress: string | null;
 
+  // Cross-page navigation: when set (e.g. by explore page clicking a card),
+  // the feed page's SwipeStack reads this and jumps to the matching card.
+  // Format: `${symbol}:${durationMin}`. Cleared after consumption.
+  // We can't just set currentMarketIndex from explore because the feed's
+  // displayed list (activeMarkets) is filtered + shuffled — its indices
+  // don't line up with the raw markets array.
+  targetMarketKey: string | null;
+
   // Optimistic-vote layer
   pendingVotes: PendingVote[];
   toasts: Toast[];
 
   setCurrentMarketIndex: (index: number) => void;
+  setTargetMarketKey: (key: string | null) => void;
   setMarkets: (markets: PredictionMarket[]) => void;
   openTradeModal: (marketId: string, side: TradeSide) => void;
   closeTradeModal: () => void;
@@ -81,10 +90,12 @@ export const useStore = create<StoreState>((set, get) => ({
   tradeModalMarketId: null,
   balance: 0,
   walletAddress: null,
+  targetMarketKey: null,
   pendingVotes: [],
   toasts: [],
 
   setCurrentMarketIndex: (index) => set({ currentMarketIndex: index }),
+  setTargetMarketKey: (key) => set({ targetMarketKey: key }),
   setMarkets: (markets) => set({ markets }),
   openTradeModal: (marketId, side) =>
     set({ tradeModalOpen: true, tradeModalSide: side, tradeModalMarketId: marketId }),

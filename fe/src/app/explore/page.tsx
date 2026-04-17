@@ -20,7 +20,7 @@ export default function ExplorePage() {
   const { markets, loading } = useMarkets();
   const [duration, setDuration] = useState<DurationFilter>("all");
   const [search, setSearch] = useState("");
-  const setCurrentMarketIndex = useStore((s) => s.setCurrentMarketIndex);
+  const setTargetMarketKey = useStore((s) => s.setTargetMarketKey);
   const router = useRouter();
 
   const filtered = markets
@@ -34,9 +34,12 @@ export default function ExplorePage() {
     .filter((m) => duration === "all" || m.durationMin === duration)
     .sort((a, b) => b.yesPool + b.noPool - (a.yesPool + a.noPool));
 
+  // Navigate by (symbol + durationMin), not by raw-array index. The feed's
+  // displayed list is filtered + shuffled, so passing an index would land on
+  // the wrong card. SwipeStack picks up targetMarketKey and resolves it
+  // against its own filtered list.
   const handleCardClick = (market: PredictionMarket) => {
-    const idx = markets.findIndex((m) => m.id === market.id);
-    if (idx >= 0) setCurrentMarketIndex(idx);
+    setTargetMarketKey(`${market.symbol}:${market.durationMin}`);
     router.push("/");
   };
 
